@@ -8,6 +8,8 @@ import shutil
 import tempfile
 
 SOURCE = Path(__file__).resolve().parents[1]
+HOST_NAME = 'com.thunderbird_mail_mcp.native_send'
+EXTENSION_ID = 'native-send@thunderbird-mail-mcp.local'
 FILES = ['mail_sender.py', 'native_host.py', 'server.py', 'pyproject.toml', 'README.md',
          'extension/manifest.json', 'extension/sender.js', 'extension/background.js',
          'tests/test_mail_sender.py', 'tests/test_native_host.py', 'tests/test_server.py',
@@ -20,6 +22,16 @@ FILES += ['tests/test_deployment.py']
 
 
 def prepare(target, output, native_dir):
+    target, output, native_dir = (Path(path).absolute() for path in (target, output, native_dir))
+    native_data = (output/'native-host.json').read_bytes()
+    native = json.loads(native_data)
+    if (not isinstance(native, dict) or native.get('name') != HOST_NAME
+            or native.get('type') != 'stdio'
+            or native.get('allowed_extensions') != [EXTENSION_ID]
+            or not isinstance(native.get('path'), str)
+            or not Path(native['path']).is_absolute()
+            or Path(native['path']).resolve() != (target/'native-send-launcher').resolve()):
+        raise ValueError('Native host manifest must match the deployment target, stdio host and extension allowlist')
     baseline_file = SOURCE/'baseline-hashes.json'
     baseline = json.loads(baseline_file.read_text()) if baseline_file.exists() else {}
     changes = {}
@@ -34,14 +46,8 @@ def prepare(target, output, native_dir):
     python = target/'.venv/bin/python'
     if not python.is_file():
         raise ValueError('Existing MCP Python runtime missing')
-    launcher = (f'#!{python}\n'
-                'import sys\n'
-                f'sys.path.insert(0, {str(target)!r})\n'
-                'from native_host import serve\n'
-                'from mail_sender import SendJournal\n'
-                'serve(sys.stdin.buffer, sys.stdout.buffer, SendJournal())\n')
-    changes[target/'native-send-launcher'] = (launcher.encode(), 0o700)
-    changes[native_dir/'com.thunderbird_mail_mcp.native_send.json'] = ((output/'native-host.json').read_bytes(), 0o600)
+    changes[target/'native-send-launcher'] = ((SOURCE/'native-send-launcher').read_bytes(), 0o700)
+    changes[native_dir/f'{HOST_NAME}.json'] = (native_data, 0o600)
     return changes
 
 

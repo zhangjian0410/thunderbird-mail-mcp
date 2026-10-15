@@ -13,3 +13,11 @@ build/
 *.db
 *.mbox
 baseline-hashes.json
+
+# Generated native-host configuration and deployment records contain local paths.
+native-host.json
+com.thunderbird_mail_mcp.native_send.json
+rollback.json
+deployment-backups/
+*.xpi
+*.db-*

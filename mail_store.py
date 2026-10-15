@@ -9,6 +9,7 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from pathlib import Path
 import re
+import warnings
 from zoneinfo import ZoneInfo
 
 
@@ -45,8 +46,7 @@ class MailStore:
         earliest = self._now().astimezone(SHANGHAI) - timedelta(days=days or 0)
         results: list[tuple[datetime, dict[str, str]]] = []
 
-        for message in self._iter_messages():
-            date = self._parse_date(message)
+        for message, date in self._dated_messages():
             haystack = "\n".join(
                 [
                     message.get("Subject", ""),
@@ -67,17 +67,15 @@ class MailStore:
             raise InvalidInputError("limit 必须是 1 到 100 的整数")
         results = [
             (date, self._to_summary(message, date))
-            for message in self._iter_messages()
-            for date in [self._parse_date(message)]
+            for message, date in self._dated_messages()
         ]
         return [summary for _, summary in sorted(results, key=lambda item: item[0], reverse=True)[:limit]]
 
     def read_email(self, message_id: str) -> dict[str, object]:
         target = self._require_text(message_id, "message_id")
-        for message in self._iter_messages():
+        for message, date in self._dated_messages():
             if message.get("Message-ID", "").strip() != target:
                 continue
-            date = self._parse_date(message)
             body, quoted_history_omitted = self._current_body(message)
             return {
                 **self._to_summary(message, date),
@@ -93,6 +91,16 @@ class MailStore:
         if not isinstance(value, str) or not value.strip():
             raise InvalidInputError(f"{field_name} 不能为空")
         return value.strip()
+
+    def _dated_messages(self) -> Iterator[tuple[Message, datetime]]:
+        for message in self._iter_messages():
+            try:
+                date = self._parse_date(message)
+            except (ValueError, TypeError, IndexError, OverflowError):
+                warnings.warn('Skipped a message with a missing or invalid Date header; '
+                              'use query_email for explicit coverage gaps.', RuntimeWarning, stacklevel=2)
+                continue
+            yield message, date
 
     def _iter_messages(self) -> Iterator[Message]:
         with self._mailbox_path.open("rb") as source:
@@ -180,7 +188,7 @@ class MailStore:
 
     @staticmethod
     def _parse_date(message: Message) -> datetime:
-        parsed = parsedate_to_datetime(message["Date"])
+        parsed = parsedate_to_datetime(message.get("Date", ""))
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=SHANGHAI)
         return parsed.astimezone(SHANGHAI)

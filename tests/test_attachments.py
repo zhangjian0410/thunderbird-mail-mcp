@@ -26,7 +26,8 @@ class AttachmentTests(unittest.TestCase):
             content+=base64.b64decode(r['data_base64'])
         self.assertEqual(content,self.data)
         with self.assertRaises(ValueError): self.j.attachment_chunk('a','wrong',0,0)
-        with self.assertRaises(ValueError): self.j.enqueue('a',self.p,attachments=[self.a])
+        self.assertEqual(self.j.enqueue('a',self.p,attachments=[self.a]),self.j.status('a'))
+        with self.assertRaises(ValueError): self.j.enqueue('new-request',self.p,attachments=[self.a])
     def test_stale_extension_rejects_attachment_and_draft(self):
         self.j.heartbeat(self.ids)
         for opts in [dict(attachments=[self.a]),dict(action='draft')]:

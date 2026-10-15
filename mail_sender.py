@@ -48,12 +48,13 @@ def validate_payload(payload):
     return result
 
 
-def snapshot_attachments(items):
+def attachment_references(items):
+    """Validate caller references without reading files or retaining local paths."""
     if items is None:
-        return [], []
+        return []
     if not isinstance(items, list) or len(items) > 10:
         raise ValueError('Use at most 10 attachments')
-    metadata, blobs, total = [], [], 0
+    references = []
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get('path'), str):
             raise ValueError('Attachment requires an absolute path and sha256')
@@ -63,6 +64,13 @@ def snapshot_attachments(items):
             raise ValueError('Attachment requires an absolute path and expected sha256')
         if any(ord(c) < 32 or ord(c) == 127 for c in path.name):
             raise ValueError('Invalid attachment filename')
+        references.append((path, expected.lower()))
+    return references
+
+
+def snapshot_attachments(items):
+    metadata, blobs, total = [], [], 0
+    for path, expected in attachment_references(items):
         try:
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             with os.fdopen(fd, 'rb') as stream:
@@ -75,7 +83,7 @@ def snapshot_attachments(items):
         if total > 20 * 1024 * 1024:
             raise ValueError('Attachments exceed 20 MiB total')
         digest = hashlib.sha256(data).hexdigest()
-        if digest != expected.lower():
+        if digest != expected:
             raise ValueError('Attachment sha256 changed; review the actual file before sending')
         metadata.append({'index':len(metadata), 'name':path.name, 'size':len(data),
                          'sha256':digest, 'type':mimetypes.guess_type(path.name)[0] or 'application/octet-stream'})
@@ -156,36 +164,64 @@ class SendJournal:
         if action not in ('send', 'draft'):
             raise ValueError('Unsupported action')
         payload = validate_payload(payload)
-        metadata, blobs = snapshot_attachments(attachments)
-        # Preserve legacy attachment-free send digests across upgrades.
-        if metadata:
-            payload['attachments'] = metadata
-        if action == 'draft':
-            payload['action'] = action
-        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        # A retry refers to the immutable existing request, even if its source
+        # files have since moved, changed or disappeared. Keep file I/O outside
+        # the write transaction for new requests.
         with self.db() as db:
-            old = db.execute('SELECT * FROM sends WHERE id=?', (key,)).fetchone()
-            if old:
-                if old['digest'] != digest:
-                    raise ValueError('idempotency_key is already bound to a different message')
-                return self._public(old, db.execute('SELECT * FROM request_meta WHERE id=?', (key,)).fetchone())
+            previous = self._existing_request(db, key, payload, attachments, action)
+            if previous is not None:
+                return previous
+        metadata, blobs = snapshot_attachments(attachments)
+        queued = self._request_payload(payload, metadata, action)
+        digest = self._digest(queued)
+        with self.db() as db:
+            # Another client may have inserted this key while files were read.
+            previous = self._existing_request(db, key, payload, attachments, action)
+            if previous is not None:
+                return previous
             bridge = db.execute('SELECT * FROM bridge WHERE id=1').fetchone()
             if not bridge or not 0 <= self.clock() - bridge['seen'] <= 15:
                 raise ValueError('Thunderbird send bridge offline; no message queued')
             feature_row = db.execute('SELECT features FROM bridge_features WHERE id=1').fetchone()
             features = json.loads(feature_row[0]) if feature_row else []
-            if (metadata and 'attachments_v1' not in features) or (action == 'draft' and 'draft_v1' not in features) or (payload.get('body_format') == 'html' and 'html_v1' not in features):
+            if (metadata and 'attachments_v1' not in features) or (action == 'draft' and 'draft_v1' not in features) or (queued.get('body_format') == 'html' and 'html_v1' not in features):
                 raise ValueError('Running Thunderbird extension does not support this request; update it first')
-            matches = [i for i in json.loads(bridge['identities']) if i['email'].lower() == payload['from_email'].lower()]
+            matches = [i for i in json.loads(bridge['identities']) if i['email'].lower() == queued['from_email'].lower()]
             if len(matches) != 1:
                 raise ValueError('from_email must match exactly one available Thunderbird identity')
-            payload['identity_id'] = matches[0]['id']
+            queued['identity_id'] = matches[0]['id']
             db.execute('INSERT INTO sends (id,digest,payload,created,state) VALUES (?,?,?,?,?)',
-                       (key, digest, json.dumps(payload, ensure_ascii=False), self.clock(), 'pending'))
+                       (key, digest, json.dumps(queued, ensure_ascii=False), self.clock(), 'pending'))
             db.execute('INSERT INTO request_meta VALUES (?,?,?)', (key, action, json.dumps(metadata, ensure_ascii=False)))
             db.executemany('INSERT INTO attachments VALUES (?,?,?)', [(key,i,data) for i,data in enumerate(blobs)])
             return self._public(db.execute('SELECT * FROM sends WHERE id=?', (key,)).fetchone(),
                                 db.execute('SELECT * FROM request_meta WHERE id=?', (key,)).fetchone())
+
+    @staticmethod
+    def _request_payload(payload, metadata, action):
+        payload = dict(payload)
+        # Preserve legacy attachment-free send digests across upgrades.
+        if metadata:
+            payload['attachments'] = metadata
+        if action == 'draft':
+            payload['action'] = action
+        return payload
+
+    @staticmethod
+    def _digest(payload):
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    def _existing_request(self, db, key, payload, attachments, action):
+        old = db.execute('SELECT * FROM sends WHERE id=?', (key,)).fetchone()
+        if old is None:
+            return None
+        meta = db.execute('SELECT * FROM request_meta WHERE id=?', (key,)).fetchone()
+        metadata = json.loads(meta['attachments']) if meta else []
+        requested = [(path.name, digest) for path, digest in attachment_references(attachments)]
+        stored = [(item['name'], item['sha256']) for item in metadata]
+        if requested != stored or self._digest(self._request_payload(payload, metadata, action)) != old['digest']:
+            raise ValueError('idempotency_key is already bound to a different message')
+        return self._public(old, meta)
 
     def _expire(self, db):
         db.execute("UPDATE sends SET state='expired', payload=NULL WHERE state='pending' AND created<?", (self.clock()-60,))

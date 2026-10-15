@@ -14,6 +14,8 @@ HTML 请求须有扩展 `html_v1` 能力，入队及领取时均检查，旧扩�
 
 ## 安装与测试
 
+维护修复包含部署路径校验、含空格路径的原生主机启动、附件幂等重试，以及旧查询接口的坏日期容错。扩展协议与数据库结构保持兼容。
+
 ```bash
 python3.11 -m venv .venv
 .venv/bin/python -m pip install -e .
@@ -39,6 +41,8 @@ THUNDERBIRD_INBOX_PATH = "/absolute/path/to/Inbox"
 服务只通过 stdio 工作，不监听网络端口。
 
 将以上路径替换为实际安装目录和 Thunderbird 的本地 mbox Inbox 文件。也可在启动服务前设置环境变量 `THUNDERBIRD_INBOX_PATH`；支持绝对路径及 `~`。未配置时仅使用 `~/Library/Thunderbird/Inbox` 作为占位路径，不会自动发现其他账号；查询前应显式配置。该服务当前面向 macOS。
+
+旧版 `search_email`、`list_recent_email`、`read_email` 会跳过缺少或无法解析日期的邮件，并通过 stderr 发出不包含邮件内容的警告；返回类型不变。需要完整性核查时使用 `query_email` 的 `coverage.gaps`，不要把旧版列表当作完整覆盖证明。
 
 ## 工具
 
@@ -107,6 +111,10 @@ install -m 600 dist/native-host.json "$HOME/Library/Mozilla/NativeMessagingHosts
 此步骤只打包和注册主机；仍需在 Thunderbird 手动安装并启用 XPI。
 离线测试使用临时邮箱与模拟发送接口，不发送真实邮件。
 
+使用 `scripts/deploy_send.py` 时，打包的 `--install-root` 必须与部署的 `--target` 指向同一目录；`--check` 和实际部署都会检查主机路径、名称、stdio 类型及唯一允许的扩展 ID。部署保留同一份可移植 launcher，不生成包含安装路径的 Python shebang。
+
+生成的 `native-host.json`、`com.thunderbird_mail_mcp.native_send.json`、`rollback.json` 与 XPI 均不应提交；这些名称在 `dist/` 外也已忽略。部署备份放在仓库外或已忽略的 `deployment-backups/`，其中可能包含本机绝对路径及原始配置。
+
 1. 使用 `scripts/package_send.py --output <产物目录> --install-root /absolute/path/thunderbird-mail-mcp` 生成 XPI 和原生主机清单。
 2. 部署 Python 文件及 native-send-launcher，在 `~/Library/Mozilla/NativeMessagingHosts/com.thunderbird_mail_mcp.native_send.json` 注册主机。
 3. Thunderbird → 附加组件和主题 → 齿轮菜单 → 从文件安装附加组件，选择 XPI 并确认列出的发送、读取邮件和本地桥接权限。启用后每2秒与 native host 通信。程序不绕过附加组件权限提示。
@@ -126,7 +134,9 @@ install -m 600 dist/native-host.json "$HOME/Library/Mozilla/NativeMessagingHosts
 # 0.4.0：附件与原生草稿
 
 `send_email` 新增可选 `attachments`：`[{"path":"/absolute/file.xlsx","sha256":"<64位SHA-256>"}]`。
-必须先审阅附件内容并计算预期哈希；路径相同但内容变化会拒绝请求。最多10个文件、合计20 MiB（二进制总量；邮件服务自身限制仍适用）。仅接受普通文件，不接受文件符号链接或相对路径。
+创建新请求时，必须先审阅附件内容并计算预期哈希；实际内容与预期哈希不符会拒绝请求。最多10个文件、合计20 MiB（二进制总量；邮件服务自身限制仍适用）。仅接受普通文件，不接受文件符号链接或相对路径。
+
+已有幂等键的重试使用已保存的附件摘要和请求状态，不重新读取原文件，也不覆盖快照；原文件已删除或变化不会导致重复发送。重试仍须提供原正文、动作、附件文件名、顺序及预期 SHA-256，任何变化都会拒绝。仍可用 `get_send_status` 单独查询结果；结果不明时不要换键重发。
 
 `create_draft` 使用与 `send_email` 相同参数，保存到 Thunderbird 账号配置的草稿文件夹，绝不调用发送。返回 pending 后用 `get_send_status` 查询，只有 drafted 才表示已保存，drafts 给出邮件ID。含附件的草稿也不是发信授权。现有 `compose_email` 保持原有打开写信窗口的行为；带附件请使用 `create_draft`。
 

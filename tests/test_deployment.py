@@ -2,17 +2,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
-from scripts import deploy_send
+from scripts import deploy_send, package_send
 
 class DeploymentTests(unittest.TestCase):
     def test_installed_checkout_can_check_without_private_baseline(self):
         with TemporaryDirectory() as d:
             root=Path(d); (root/'server.py').write_text('content')
             (root/'.venv/bin').mkdir(parents=True); (root/'.venv/bin/python').write_text('runtime')
-            (root/'native-host.json').write_text('{}')
+            source = deploy_send.SOURCE
+            package_send.build(source, root, root)
+            (root/'native-send-launcher').write_bytes((source/'native-send-launcher').read_bytes())
             with patch.object(deploy_send,'SOURCE',root),patch.object(deploy_send,'FILES',['server.py']):
                 self.assertEqual(deploy_send.prepare(root,root,root/'native')[root/'server.py'][0],b'content')
                 other=root/'other'; other.mkdir(); (other/'server.py').write_text('unrelated')
+                package_send.build(source,root,other)
                 with self.assertRaisesRegex(ValueError,'Concurrent change'): deploy_send.prepare(other,root,root/'native')
     def test_partial_install_failure_restores_original_bytes_and_mode(self):
         with TemporaryDirectory() as d:
