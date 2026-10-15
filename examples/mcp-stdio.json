@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "thunderbird_mail": {
+      "type": "stdio",
+      "command": "/absolute/path/thunderbird-mail-mcp/.venv/bin/python",
+      "args": ["/absolute/path/thunderbird-mail-mcp/server.py"],
+      "env": {
+        "THUNDERBIRD_INBOX_PATH": "/absolute/path/to/Inbox"
+      }
+    }
+  }
+}
