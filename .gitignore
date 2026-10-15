@@ -1,0 +1,15 @@
+.worktrees/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.DS_Store
+.env
+.env.*
+dist/
+build/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.mbox
+baseline-hashes.json

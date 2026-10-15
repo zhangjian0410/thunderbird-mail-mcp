@@ -1,0 +1,11 @@
+{
+  "manifest_version": 2,
+  "name": "Thunderbird MCP Native Send",
+  "version": "0.5.0",
+  "description": "Send explicitly delegated MCP requests through Thunderbird and verify sent copies.",
+  "browser_specific_settings": {
+    "gecko": {"id": "native-send@thunderbird-mail-mcp.local", "strict_min_version": "153.0"}
+  },
+  "permissions": ["accountsRead", "messagesRead", "compose", "compose.send", "compose.save", "nativeMessaging", "storage"],
+  "background": {"scripts": ["sender.js", "background.js"], "persistent": true}
+}
