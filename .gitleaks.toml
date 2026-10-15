@@ -1,0 +1,7 @@
+title = "Thunderbird Mail MCP secrets and private configuration"
+
+[extend]
+useDefault = true
+
+# check_secrets.py independently checks private paths, mailboxes and local files:
+# upstream credential allowlists intentionally permit many home-directory paths.

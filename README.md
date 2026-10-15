@@ -17,13 +17,34 @@ HTML 请求须有扩展 `html_v1` 能力，入队及领取时均检查，旧扩�
 维护修复包含部署路径校验、含空格路径的原生主机启动、附件幂等重试，以及旧查询接口的坏日期容错。扩展协议与数据库结构保持兼容。
 
 ```bash
-python3.11 -m venv .venv
-.venv/bin/python -m pip install -e .
-.venv/bin/python -m unittest discover -s tests -v
+uv lock --check
+uv sync --locked --no-install-project
+uv sync --locked --no-build-isolation
+uv run --no-sync python -m unittest discover -s tests -v
 node --test tests/*.test.cjs
 ```
 
 本项目固定使用 `mcp>=1,<2`，以使用官方 MCP Python SDK v1 的 `FastMCP` stdio API。
+
+上述安装使用 uv **0.13.0**、Node **22.23.0**；`.python-version` 默认选择 Python 3.11。`uv.lock` 固定运行依赖及 setuptools/wheel 的版本与包哈希。第一遍同步安装锁定的构建工具，第二遍关闭构建隔离后安装本项目，避免另行下载未锁定的构建依赖。所有命令只应在新检出或隔离环境运行；GitHub CI 不部署到正在使用的本机服务。
+
+依赖更新时运行 `uv lock --upgrade`（或 `uv lock --upgrade-package <name>`），审阅 `uv.lock` 差异，再执行上述完整检查，并同时提交必要的 `pyproject.toml` 变更和锁文件。CI 的 `--check` / `--locked` 不会静默更新过期锁文件。
+
+### 自动检查与敏感信息
+
+GitHub Actions 在每次 push、pull request 和手动运行时执行：Linux/Python 3.10 与 macOS/Python 3.11 的 Python/Node 测试、扩展打包，以及独立的敏感信息检查。Actions 固定到完整 commit SHA，仅授予 `contents: read`，不保留 checkout 凭据；测试不会访问真实邮箱或发送邮件。JavaScript 测试只使用 Node 内置模块，因此不需要 npm 依赖锁文件。
+
+敏感信息检查使用 Gitleaks **8.30.1** 的默认密钥规则；Python 检查独立拦截私人 home 路径、非示例邮箱及本地配置文件，避免这些信息受到通用密钥规则的路径例外影响。完整 Git 历史和当前受版本控制的文件都要通过；不会扫描未跟踪的虚拟环境、用户目录或真实邮箱。输出全量脱敏，不采用仓库里的忽略指纹或行内放行注释，也不整体排除测试或 `uv.lock`。只有保留的 example/test/invalid 地址、固定扩展 ID 和 GitHub noreply 身份例外。
+
+从 [Gitleaks 官方发布](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1) 获取适合平台的程序，并核对该版本 checksums 文件后，可在新检出中运行：
+
+```bash
+export GITLEAKS_BIN="/absolute/path/to/gitleaks"
+uv run --no-sync python scripts/test_secret_scanner.py
+uv run --no-sync python scripts/check_secrets.py
+```
+
+规则自检只在临时仓库构造伪造密钥和私人路径，验证泄露会导致失败、从 HEAD 删除的历史密钥仍会检出，且诊断不输出完整伪造密钥。若自动检查发现真实泄露，应先撤销或轮换凭据并核查历史，不能只删文件或加放行规则。
 
 ## 连接 Codex
 

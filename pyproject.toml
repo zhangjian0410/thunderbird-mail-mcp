@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,12 @@ version = "0.5.0"
 description = "Thunderbird local mail queries and explicitly delegated native sending"
 requires-python = ">=3.10"
 dependencies = ["mcp>=1,<2"]
+
+[dependency-groups]
+dev = ["setuptools>=68", "wheel"]
+
+[tool.uv]
+required-version = "==0.13.0"
 
 [tool.setuptools]
 py-modules = ["mail_store", "mail_reader", "mail_composer", "mail_sender", "native_host", "server"]
