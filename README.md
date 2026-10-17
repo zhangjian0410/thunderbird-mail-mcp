@@ -1,18 +1,22 @@
 # Thunderbird Mail MCP
 
-让 AI Agent 通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 查询本机 Thunderbird 邮件、读取附件、创建草稿，以及发送用户明确授权的邮件。
+让 AI Agent 通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 查询本机 Thunderbird 邮件、读取附件、创建草稿，以及直接发送用户明确授权的邮件。
+
+**当前已实现直接发送：`send_email` 通过 Thunderbird 扩展立即发信；`create_draft` 只保存草稿；`compose_email` 只打开写信窗口。三者是独立接口，保存草稿不是直接发送的前置条件。**
 
 这是一个独立的 Python MCP server，使用标准 **stdio** 传输。它不依赖 Codex、Qoder、QwenWork 或任何模型供应商的 SDK、账号、API Key、Skill、私有配置目录。客户端负责启动服务、选择模型和管理工具调用权限；服务负责邮件数据与 Thunderbird 的交互。
 
 ## 能做什么
 
-| 能力 | 实现方式 |
-|---|---|
-| 搜索和分页查询邮件 | 直接读取 Thunderbird 本地 mbox，支持精确发件人和时间范围 |
-| 读取正文和附件 | 批量正文读取、历史引用分离、附件分段下载及 SHA-256 校验 |
-| 打开写信窗口 | 调用 Thunderbird 原生 CLI，由用户在窗口中继续编辑 |
-| 创建原生草稿 | 通过可选 Thunderbird 扩展保存纯文本或 HTML 草稿，支持附件 |
-| 发送邮件与查状态 | 通过可选扩展使用现有 Thunderbird 身份发送，提供幂等键和持久状态 |
+| 能力 | MCP 工具 | 已实现的行为 |
+|---|---|---|
+| 搜索和分页查询邮件 | `list_mail_folders`、`query_email`、`search_email`、`list_recent_email` | 读取 Thunderbird 本地 mbox；新查询接口支持精确发件人和时间范围，旧接口保留兼容 |
+| 读取邮件正文 | `read_emails`、`read_email` | 批量或单封读取，分离历史引用；新接口返回截断信息及附件 ID/哈希 |
+| 读取附件 | `read_attachment` | 按附件 ID 分段返回内容，提供大小和 SHA-256 校验信息 |
+| 打开写信窗口 | `compose_email` | 调用 Thunderbird 原生 CLI 打开已填写的窗口，由用户继续编辑、保存或发送；接口本身不发送 |
+| 保存原生草稿 | `create_draft` | 通过扩展保存纯文本或 HTML 草稿，支持附件；只保存，不发送 |
+| **直接发送邮件** | **`send_email`** | 通过扩展调用 `compose.sendMessage(..., {mode: "sendNow"})`，支持纯文本、HTML 和附件；无需先调用 `create_draft` 或手动点击发送 |
+| 查询发送条件和结果 | `get_send_capabilities`、`get_send_status` | 查询扩展在线状态、发件身份、特性及持久请求状态，提供幂等去重和发送副本验证信息 |
 
 查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.5.0**，提供 **12 个工具**，详见[工具与行为参考](docs/reference.md)。
 
@@ -88,10 +92,18 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 
 工具调用成功只证明本地数据可读；Thunderbird 是否已与邮件服务器同步需要另外确认。要使用草稿和发送能力，继续阅读[可选写信部署](docs/reference.md#可选写信部署macos)。
 
+### 4. 使用写信能力
+
+`compose_email` 只需本机 Thunderbird。`create_draft` 和 `send_email` 都需要已启用的扩展及 native host；先通过 `get_send_capabilities` 确认 `ready=true` 和实际发件身份。附件、草稿、HTML 分别要求扩展支持 `attachments_v1`、`draft_v1`、`html_v1`。
+
+按任务选择接口：只需保存草稿时调用 `create_draft`；用户已明确授权直接发送时调用 `send_email`。两者提交请求后，都用 `get_send_status` 查询结果：`drafted` 表示保存成功，`sent` 表示 Thunderbird 确认提交至发件服务器。`pending` 只是受理请求，不能据此宣称已经发送。
+
+保存草稿不会自动触发后续发送。若先预览草稿再发送，后续发送是单独的 `send_email` 请求，使用新的幂等键；本项目没有按草稿 ID 发送的 MCP 接口。HTML 先保存草稿检查排版是使用建议，服务不会强制执行该步骤。
+
 ## 使用边界
 
 - 当前服务始终公布所有 12 个工具，没有服务端只读模式开关。仅需查询时，应在客户端限制 `compose_email`、`create_draft` 和 `send_email` 的使用。
-- 发送权限由调用方管理。服务不读取任何 Harness 的审批白名单，也不解析自然语言授权；调用方须在调用 `send_email` 前取得收件对象与用途的明确授权。
+- 发送权限由调用方管理。服务不读取任何 Harness 的审批白名单，也不解析自然语言授权；调用方须在调用 `send_email` 前取得收件对象与用途的明确授权。服务端没有逐封人工审批记录或确认令牌校验；客户端是否弹出确认由所用 Harness 配置决定。
 - `pending` / `sending` 不代表发送成功；`sent` 表示 Thunderbird 确认提交，不保证收件人收到。同一封邮件重试必须复用幂等键，结果不明时不能换键重发。
 - 本地完整枚举不等于服务器同步完成；检查查询返回的 `coverage`、分页和正文截断信息。
 - mbox、原生配置、发送数据库、XPI 和部署备份可能含私人数据，不能提交到 Git。自动扫描覆盖受版本控制的当前文件与 Git 历史。

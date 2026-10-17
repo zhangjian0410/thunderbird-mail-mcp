@@ -21,6 +21,18 @@
 
 `to`、`cc`、`bcc` 在草稿/自动发送接口中是纯邮箱地址数组；`from_email` 必须匹配唯一的现有身份。完整输入 schema 由 MCP `tools/list` 返回。
 
+## 三种写信接口的执行路径
+
+| 接口 | 服务与 Thunderbird 执行路径 | 最终行为 |
+|---|---|---|
+| `compose_email` | `MailComposer` → Thunderbird CLI `-compose` | 打开写信窗口；接口不自动保存或发送 |
+| `create_draft` | 入队时指定 `action="draft"` → 扩展 `compose.saveMessage(..., {mode: "draft"})` | 只保存草稿，状态为 `drafted` |
+| `send_email` | 入队使用默认 `action="send"` → 扩展 `compose.sendMessage(..., {mode: "sendNow"})` | 直接发信，成功后状态为 `sent`；不会先调用保存草稿接口 |
+
+`create_draft` 与 `send_email` 不是一条必须顺序执行的调用链。保存草稿是独立动作；直接发送不要求草稿 ID，也不要求用户再在 Thunderbird 窗口中点击发送。扩展离线、发件身份不匹配或缺少所需特性时，请求会拒绝入队；Thunderbird 的发送过程仍可能失败或返回未知结果。
+
+服务端检查参数、扩展在线状态、身份、特性、附件完整性和幂等键，不检查人工审批记录或确认令牌。调用方负责取得用户授权及执行客户端权限策略；工具描述中的授权要求不是服务端的人工审批机制。
+
 ## 查询完整性与附件
 
 推荐调用顺序：`list_mail_folders` → `query_email` → 保持查询参数并跟随 `next_cursor` 至 null → `read_emails` → 按附件 ID 分段 `read_attachment`。
@@ -33,7 +45,9 @@
 
 ## 草稿、HTML 与发送状态
 
-`body_format` 接受 plain（默认）或 html。HTML 必须是真实 HTML，不自动转换 Markdown；扩展使用 HTML 编辑模式和 `deliveryFormat: "both"`，由 Thunderbird 生成纯文本备用内容。接口不支持独立提交两份正文，也不净化任意 HTML。使用简单 table、内联样式，避免脚本、表单、外部资源与跟踪图片；先保存原生草稿检查实际呈现。
+`body_format` 接受 plain（默认）或 html。HTML 必须是真实 HTML，不自动转换 Markdown；扩展使用 HTML 编辑模式和 `deliveryFormat: "both"`，由 Thunderbird 生成纯文本备用内容。接口不支持独立提交两份正文，也不净化任意 HTML。使用简单 table、内联样式，避免脚本、表单、外部资源与跟踪图片。建议先保存原生草稿检查实际呈现；这是预览建议，不是 `send_email` 的技术前置条件。
+
+若预览后选择发送，须取得发送授权，再以新的幂等键调用 `send_email` 并提供最终正文和附件。该调用创建独立发送请求，不会自动读取、发送或删除先前保存的草稿；目前没有按草稿 ID 发送的工具。
 
 附件参数格式为 `[{"path":"/absolute/file.xlsx","sha256":"<64位SHA-256>"}]`，最多 10 个、合计 20 MiB，只接受绝对路径的普通文件。首次入队核验用户已审阅文件的 SHA-256 并保存不可变快照，扩展再校验字节数及哈希；桥接每次最多传 256 KiB。
 
@@ -69,7 +83,7 @@ install -m 600 dist/native-host.json "$HOME/Library/Mozilla/NativeMessagingHosts
 
 `native-send-launcher` 使用自身目录下的 `.venv/bin/python`，支持含空格的安装路径。`scripts/deploy_send.py` 的 `--target` 必须与打包时 `--install-root` 一致；`--check` 和实际部署都检查主机路径、名称、stdio 类型和唯一扩展 ID。脚本的参数以 `--help` 为准。
 
-重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。`get_send_capabilities().ready` 应为 true，特性包含 `attachments_v1`、`draft_v1`、`html_v1`。发件身份使用返回的实际身份；先检查草稿，再在用户授权下发送。不得用真实发信作为普通安装自检。
+重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。`get_send_capabilities().ready` 应为 true，按所需功能检查 `attachments_v1`、`draft_v1`、`html_v1`。发件身份使用返回的实际身份；可按需预览草稿，直接发送须有用户授权。不得用真实发信作为普通安装自检。
 
 停用自动发送可在 Thunderbird 中停用扩展；未领取请求会过期，但已领取或提交的邮件不能靠停用撤回。查询和原生 `compose_email` 不依赖扩展。多个本地 MCP 客户端使用同一系统用户时，共用该用户的发送队列与已启用扩展；各客户端须管理自己的调用权限。
 
