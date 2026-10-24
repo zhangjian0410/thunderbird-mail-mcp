@@ -10,7 +10,7 @@
 
 | 能力 | MCP 工具 | 已实现的行为 |
 |---|---|---|
-| 搜索和分页查询邮件 | `list_mail_folders`、`query_email`、`search_email`、`list_recent_email` | 读取 Thunderbird 本地 mbox；新查询接口支持精确发件人和时间范围，旧接口保留兼容 |
+| 搜索和分页查询邮件 | `list_mail_folders`、`query_email`、`search_email`、`list_recent_email` | 新查询接口支持精确发件人、时间范围及 Inbox/Sent 文件夹选择，默认只查 Inbox；旧接口仍只读 Inbox |
 | 读取邮件正文 | `read_emails`、`read_email` | 批量或单封读取，分离历史引用；新接口返回截断信息及附件 ID/哈希 |
 | 读取附件 | `read_attachment` | 按附件 ID 分段返回内容，提供大小和 SHA-256 校验信息 |
 | 打开写信窗口 | `compose_email` | 调用 Thunderbird 原生 CLI 打开已填写的窗口，由用户继续编辑、保存或发送；接口本身不发送 |
@@ -38,7 +38,7 @@ Harness 无关不等于操作系统无关。**当前原生部署面向 macOS**�
 ## 环境要求
 
 - Python **3.10+**，推荐 **3.11**；依赖通过 uv **0.13.0** 和 `uv.lock` 安装。
-- 查询需要一个可读的本地 **mbox 文件**。当前入口配置一个 Inbox，适用于已有 Thunderbird 本地 POP 邮件；不会自动发现账户，不支持直接读取 Maildir。
+- 查询需要可读的本地 **mbox 文件**，支持 Inbox 和 Sent 已发送副本，适用于已有 Thunderbird 本地 POP 邮件。Sent 默认取 Inbox 同目录的 `Sent` 文件，也可单独配置；不会自动发现账户或待发 Outbox，不支持直接读取 Maildir。
 - 打开原生写信窗口需要 Thunderbird 安装在 `/Applications/Thunderbird.app`。
 - 创建草稿或自动发送需要 Thunderbird **153+**、本仓库 **0.5.0** 扩展及 native host；查询功能不需要扩展。
 - Node **22.23.0** 仅用于开发测试，日常运行 Python 服务不需要 Node。
@@ -82,7 +82,7 @@ uv sync --locked --no-build-isolation
 
 Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其官方说明放入 `mcpServers`。QwenWork 桌面端在扩展 → 连接器 → 添加中导入 JSON，或选择 STDIO 手动填写等价的启动命令及环境变量。其他客户端按自己的格式填写相同的 `command`、`args`、`env`。
 
-唯一的邮件路径环境变量是 `THUNDERBIRD_INBOX_PATH`。省略时服务使用 `~/Library/Thunderbird/Inbox` 占位路径，不会自动扫描账户。无需填写邮箱密码或模型 API Key。
+`THUNDERBIRD_INBOX_PATH` 指定收件箱；省略时使用 `~/Library/Thunderbird/Inbox` 占位路径。可选的 `THUNDERBIRD_SENT_PATH` 指定已发送副本 mbox，省略时取 Inbox 同目录的 `Sent`。两者都支持绝对路径及 `~`，不会自动扫描账户或核验 Thunderbird 的 FCC 保存位置；Sent 实际位置不同应显式配置。无需填写邮箱密码或模型 API Key。
 
 ### 3. 验证查询
 
@@ -91,6 +91,8 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 > 查询发件人为 sender@example.test 的邮件，列出主题和日期；读取我指定的一封邮件，不创建草稿或发送。
 
 工具调用成功只证明本地数据可读；Thunderbird 是否已与邮件服务器同步需要另外确认。要使用草稿和发送能力，继续阅读[可选写信部署](docs/reference.md#可选写信部署macos)。
+
+`query_email` 省略 `folders` 时只查询 Inbox；传入 `folders=["Sent"]` 查询已保存的发送副本，`folders=["Inbox", "Sent"]` 合并查询。Sent 未配置到有效文件时，不影响默认 Inbox 查询，可通过 `list_mail_folders` 查看可用性。Sent 查询、正文和附件读取不会发送、移动或标记邮件；Sent 副本不等于收件人已收到，也不包括等待发送的 Outbox。
 
 ### 4. 使用写信能力
 

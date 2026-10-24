@@ -28,7 +28,10 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             temporary = Path(directory)
             mailbox = temporary / 'FixtureInbox'
             build_mailbox(mailbox)
+            sent = temporary / 'Sent'
+            build_mailbox(sent)
             original = mailbox.read_bytes()
+            original_sent = sent.read_bytes()
             replacements = {
                 config['command']: sys.executable,
                 config['args'][0]: str(ROOT / 'server.py'),
@@ -70,4 +73,20 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                                     'locator': locator, 'attachment_id': message['attachments'][0]['attachment_id']})
                                 self.assertEqual(base64.b64decode(attachment['data_base64']), b'123')
                                 self.assertEqual(attachment['sha256'], hashlib.sha256(b'123').hexdigest())
+                                sent_query = await call('query_email', {
+                                    'senders': ['weekly.sender@example.test'], 'folders': ['Sent']})
+                                self.assertEqual(sent_query['total_matches'], 1)
+                                self.assertEqual(sent_query['messages'][0]['folder'], 'Sent')
+                                sent_locator = sent_query['messages'][0]['locator']
+                                sent_read = await call('read_emails', {'locators': [sent_locator]})
+                                self.assertIn('SLA', sent_read['messages'][0]['body'])
+                                sent_attachment = await call('read_attachment', {
+                                    'locator': sent_locator,
+                                    'attachment_id': sent_read['messages'][0]['attachments'][0]['attachment_id']})
+                                self.assertEqual(base64.b64decode(sent_attachment['data_base64']), b'123')
+                                both = await call('query_email', {
+                                    'senders': ['weekly.sender@example.test'], 'folders': ['Inbox', 'Sent']})
+                                self.assertEqual(both['total_matches'], 2)
+                                self.assertEqual({item['folder'] for item in both['messages']}, {'Inbox', 'Sent'})
                 self.assertEqual(mailbox.read_bytes(), original)
+                self.assertEqual(sent.read_bytes(), original_sent)

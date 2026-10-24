@@ -6,8 +6,8 @@
 
 | 工具 | 用途与主要参数 |
 |---|---|
-| `list_mail_folders()` | 返回已配置本地 mbox 及可用性；当前入口默认只有 Inbox，其他文件夹须在服务端 `READER` 映射登记 |
-| `query_email(keyword="", senders=None, start=None, end=None, folders=None, page_size=50, cursor=None)` | 分页查询；空关键词允许枚举，发件人按完整地址匹配，时间为带时区的 ISO 半开区间 `start ≤ date < end`，每页 1–200 封 |
+| `list_mail_folders()` | 返回已配置的 Inbox/Sent 本地 mbox 及可用性；待发 Outbox 未接入 |
+| `query_email(keyword="", senders=None, start=None, end=None, folders=None, page_size=50, cursor=None)` | 分页查询；省略 `folders` 时只查 Inbox，可显式选择 Sent 或 Inbox+Sent；空关键词允许枚举，发件人按完整地址匹配，时间为带时区的 ISO 半开区间 `start ≤ date < end`，每页 1–200 封 |
 | `read_emails(locators, include_quoted_history=False, max_body_chars=30000)` | 一次读取 1–20 封，返回逐封结果、当前正文、引用正文、截断标记及附件 ID/哈希；正文限制参数范围 1000–100000 字符 |
 | `read_attachment(locator, attachment_id, offset=0, max_bytes=262144)` | 分段返回 base64、完整附件 SHA-256、总长度和 `next_offset`；单段最多 1 MiB |
 | `search_email(keyword, days=None, sender=None)` | 旧搜索接口：关键词必填、发件人子串匹配、无分页；新集成优先使用 `query_email` |
@@ -20,6 +20,14 @@
 | `get_send_capabilities()` | 查询扩展心跳、可用发件身份和特性；不发送邮件 |
 
 `to`、`cc`、`bcc` 在草稿/自动发送接口中是纯邮箱地址数组；`from_email` 必须匹配唯一的现有身份。完整输入 schema 由 MCP `tools/list` 返回。
+
+## Inbox 与已发送副本查询
+
+`THUNDERBIRD_INBOX_PATH` 指向收件箱 mbox；`THUNDERBIRD_SENT_PATH` 可单独指定已发送副本 mbox，省略时使用 Inbox 同目录的 `Sent`。这只是显式路径配置及默认路径派生，不会发现账户、读取账户密码或自动核验 FCC 设置；实际发送副本位置由 Thunderbird 决定。
+
+`query_email()` 默认仍只查询 Inbox，即使 Sent 文件不可用也不影响此默认范围。传入 `folders=["Sent"]` 可枚举已发送副本，`folders=["Inbox", "Sent"]` 合并查询；每条结果保留 `folder`，其 locator 可继续传给 `read_emails` / `read_attachment`。旧 `search_email`、`read_email`、`list_recent_email` 保持仅限 Inbox。
+
+Sent 查询链只读取本地 mbox，不触发 `send_email`，不移动或标记邮件。Sent 是已保存的发送副本，不是待发 Outbox；Outbox、空范围、重复或未知文件夹名称均不接受。`server_sync_status` 仍为 unknown，副本存在不能证明对方收到邮件。
 
 ## 三种写信接口的执行路径
 

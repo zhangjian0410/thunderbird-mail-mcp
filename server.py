@@ -12,15 +12,19 @@ import mail_sender
 
 
 INBOX_PATH = str(Path(os.environ.get("THUNDERBIRD_INBOX_PATH", "~/Library/Thunderbird/Inbox")).expanduser())
+SENT_PATH = str(Path(os.environ.get("THUNDERBIRD_SENT_PATH", str(Path(INBOX_PATH).with_name("Sent")))).expanduser())
 STORE = MailStore(INBOX_PATH)
-READER = MailReader({"Inbox": INBOX_PATH})
+READER = MailReader({"Inbox": INBOX_PATH, "Sent": SENT_PATH})
 COMPOSER = MailComposer()
 mcp = FastMCP("Thunderbird Mail")
 
 
 @mcp.tool()
 def list_mail_folders() -> dict[str, object]:
-    """List configured local mbox folders; server synchronization is unknown."""
+    """List configured local Inbox/Sent mbox files; server sync is unknown.
+
+    Sent contains saved sent copies. Pending Outbox is not configured.
+    """
     return READER.list_mail_folders()
 
 
@@ -37,10 +41,13 @@ def query_email(
     """Read-only local enumeration. Empty keyword allowed; senders match exact addresses.
 
     start/end are timezone-aware ISO timestamps in a half-open interval. Reuse
-    all parameters with next_cursor until exhausted. Cursors/locators expire on
+    all parameters with next_cursor until exhausted. Omitted folders reads Inbox
+    only; pass ["Sent"] for saved sent copies, or ["Inbox", "Sent"] for both.
+    Pending Outbox is not configured. Cursors/locators expire on
     mailbox changes or server restart. Coverage is LOCAL only, not server sync.
     """
-    return READER.query_email(keyword, senders, start, end, folders, page_size, cursor)
+    selected_folders = ["Inbox"] if folders is None else folders
+    return READER.query_email(keyword, senders, start, end, selected_folders, page_size, cursor)
 
 
 @mcp.tool()
