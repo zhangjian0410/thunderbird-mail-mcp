@@ -1,6 +1,6 @@
 # Thunderbird Mail MCP
 
-让 AI Agent 通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 查询本机 Thunderbird 邮件、读取附件、创建草稿，以及直接发送用户明确授权的邮件。
+让 AI Agent 通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 查询本机 Thunderbird 收件箱和已发送邮件（Sent）、读取附件、创建草稿，以及直接发送用户明确授权的邮件。
 
 **当前已实现直接发送：`send_email` 通过 Thunderbird 扩展立即发信；`create_draft` 只保存草稿；`compose_email` 只打开写信窗口。三者是独立接口，保存草稿不是直接发送的前置条件。**
 
@@ -11,6 +11,7 @@
 | 能力 | MCP 工具 | 已实现的行为 |
 |---|---|---|
 | 搜索和分页查询邮件 | `list_mail_folders`、`query_email`、`search_email`、`list_recent_email` | 新查询接口支持精确发件人、时间范围及 Inbox/Sent 文件夹选择，默认只查 Inbox；旧接口仍只读 Inbox |
+| **查询已发送邮件（Sent）** | **`query_email(folders=["Sent"])`** | 枚举已保存的发送副本；结果可继续用于读取正文和附件，调用示例见[Sent 查询](#查询已发送邮件sent) |
 | 读取邮件正文 | `read_emails`、`read_email` | 批量或单封读取，分离历史引用；新接口返回截断信息及附件 ID/哈希 |
 | 读取附件 | `read_attachment` | 按附件 ID 分段返回内容，提供大小和 SHA-256 校验信息 |
 | 打开写信窗口 | `compose_email` | 调用 Thunderbird 原生 CLI 打开已填写的窗口，由用户继续编辑、保存或发送；接口本身不发送 |
@@ -19,6 +20,41 @@
 | 查询发送条件和结果 | `get_send_capabilities`、`get_send_status` | 查询扩展在线状态、发件身份、特性及持久请求状态，提供幂等去重和发送副本验证信息 |
 
 查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.5.0**，提供 **12 个工具**，详见[工具与行为参考](docs/reference.md)。
+
+## 查询已发送邮件（Sent）
+
+**Sent 是已发送副本文件夹，查询入口为 `query_email` 的 `folders` 参数。** 当前没有独立的 `sent()` 工具。直接发送新邮件的工具是 `send_email`；下面的查询调用只读取本地邮件。
+
+先调用 `list_mail_folders`，确认返回的 `Sent` 项为 `available=true`。然后调用 **`query_email`**，传入以下参数：
+
+```json
+{
+  "folders": ["Sent"],
+  "page_size": 50
+}
+```
+
+合并查询收件箱和已发送邮件时，仍调用同一个工具：
+
+```json
+{
+  "folders": ["Inbox", "Sent"],
+  "page_size": 50
+}
+```
+
+结果中的 `folder` 标明来源，`locator` 可继续传给 `read_emails` 读取正文，再使用附件 ID 调用 `read_attachment`。有后续页面时，把 `next_cursor` 作为 `cursor`，保留相同查询条件继续调用。省略 `folders` 仍只查询 Inbox；旧的 `search_email`、`read_email`、`list_recent_email` 也只读取 Inbox。
+
+Sent 默认使用 Inbox 同目录的 `Sent` mbox。若实际存放位置不同，在客户端启动配置的 `env` 中显式设置：
+
+```json
+{
+  "THUNDERBIRD_INBOX_PATH": "/absolute/path/to/Inbox",
+  "THUNDERBIRD_SENT_PATH": "/absolute/path/to/Sent"
+}
+```
+
+这些调用不发送、移动或标记邮件。Sent 只包含已保存的发送副本，不包含待发 Outbox；副本存在不等于对方已经收到。完整参数和边界见[Inbox 与已发送副本查询](docs/reference.md#inbox-与已发送副本查询)。
 
 ## Harness 与客户端兼容性
 
@@ -92,7 +128,7 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 
 工具调用成功只证明本地数据可读；Thunderbird 是否已与邮件服务器同步需要另外确认。要使用草稿和发送能力，继续阅读[可选写信部署](docs/reference.md#可选写信部署macos)。
 
-`query_email` 省略 `folders` 时只查询 Inbox；传入 `folders=["Sent"]` 查询已保存的发送副本，`folders=["Inbox", "Sent"]` 合并查询。Sent 未配置到有效文件时，不影响默认 Inbox 查询，可通过 `list_mail_folders` 查看可用性。Sent 查询、正文和附件读取不会发送、移动或标记邮件；Sent 副本不等于收件人已收到，也不包括等待发送的 Outbox。
+查询已发送邮件和合并范围的参数示例见[Sent 查询](#查询已发送邮件sent)。Sent 未配置到有效文件时，不影响默认 Inbox 查询。
 
 ### 4. 使用写信能力
 
