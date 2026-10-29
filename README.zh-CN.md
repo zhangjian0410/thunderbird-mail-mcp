@@ -177,7 +177,7 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 
 - [工具、数据边界与写信部署](docs/reference.zh-CN.md)
 - [开发、依赖更新、CI 与敏感信息检查](docs/development.zh-CN.md)
-- [版本变更](CHANGELOG.md)
+- [版本变更](CHANGELOG.zh-CN.md)
 
 完整测试命令：
 

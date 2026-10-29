@@ -36,7 +36,7 @@ Actions are pinned to full commit SHAs, receive only `contents: read`, and do no
 
 ## Maintaining bilingual documentation
 
-The English entry points are `README.md`, `docs/reference.md`, and `docs/development.md`. Their Chinese counterparts are `README.zh-CN.md`, `docs/reference.zh-CN.md`, and `docs/development.zh-CN.md`. Keep interfaces, limits, environment versions, and commands synchronized. README links should lead to documents in the same language, with language switches at the top of each page. `CHANGELOG.md` and historical research reports currently remain in Chinese.
+The English entry points are `README.md`, `docs/reference.md`, `docs/development.md`, and `CHANGELOG.md`. Their Chinese counterparts are `README.zh-CN.md`, `docs/reference.zh-CN.md`, `docs/development.zh-CN.md`, and `CHANGELOG.zh-CN.md`. Keep interfaces, limits, environment versions, commands, and version-history entries synchronized. Verify changelog claims against source revisions and distinguish inherited milestones from separately published versions. README links should lead to documents in the same language, with language switches at the top of each page. Historical research reports currently remain in Chinese.
 
 Use `server.py` for tool signatures and minimum profiles; `mail_reader.py`, `mail_store.py`, `mail_sender.py`, and `extension/` for input limits and state semantics. Check deployment commands against `scripts/package_send.py` / `scripts/deploy_send.py`, and development versions/checks against `pyproject.toml`, `uv.lock`, and `.github/workflows/ci.yml`. `tests/test_server.py` checks both README versions/tool counts and both tool catalogs' signatures, defaults, and minimum profiles. The deployment file list includes these bilingual entry points.
 

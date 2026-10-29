@@ -186,7 +186,7 @@ This README is the primary English entry point. A complete [Chinese README](READ
 
 - [Tools, data boundaries, and writing deployment](docs/reference.md)
 - [Development, dependency updates, CI, and sensitive-data checks](docs/development.md)
-- [Changelog (Chinese)](CHANGELOG.md)
+- [Changelog](CHANGELOG.md)
 
 Run the full test suite:
 

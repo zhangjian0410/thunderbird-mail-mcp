@@ -14,7 +14,7 @@ class DeploymentTests(unittest.TestCase):
             package_send.build(deploy_send.SOURCE, root / 'package', root)
             changes = deploy_send.prepare(root, root / 'package', root / 'native')
             deployed_paths = {path.resolve() for path in changes}
-            for entry in ('docs/reference.md', 'docs/development.md'):
+            for entry in ('docs/reference.md', 'docs/development.md', 'CHANGELOG.md'):
                 for language in ('', '.zh-CN'):
                     document = root / entry.replace('.md', f'{language}.md')
                     text = changes[document][0].decode()

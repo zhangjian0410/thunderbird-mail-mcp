@@ -36,7 +36,7 @@ Actions 固定到完整 commit SHA，仅授予 `contents: read`，不保留 chec
 
 ## 双语文档维护
 
-英文主入口为 `README.md`、`docs/reference.md` 和 `docs/development.md`；对应中文版为 `README.zh-CN.md`、`docs/reference.zh-CN.md` 和 `docs/development.zh-CN.md`。两种语言同步修改接口、限制、环境版本与命令；README 链接优先指向同语言文档，页面顶部提供语言切换。`CHANGELOG.md` 和历史调研报告目前仍为中文。
+英文主入口为 `README.md`、`docs/reference.md`、`docs/development.md` 和 `CHANGELOG.md`；对应中文版为 `README.zh-CN.md`、`docs/reference.zh-CN.md`、`docs/development.zh-CN.md` 和 `CHANGELOG.zh-CN.md`。两种语言同步修改接口、限制、环境版本、命令及版本记录；版本变更按源码修订核实，并区分导入的历史里程碑与单独公开的版本。README 链接优先指向同语言文档，页面顶部提供语言切换。历史调研报告目前仍为中文。
 
 工具签名和最低档位以 `server.py` 为准，参数范围和状态语义以 `mail_reader.py`、`mail_store.py`、`mail_sender.py` 及 `extension/` 为准；部署命令核对 `scripts/package_send.py` / `scripts/deploy_send.py`，开发版本和检查流程核对 `pyproject.toml`、`uv.lock` 与 `.github/workflows/ci.yml`。`tests/test_server.py` 核对双语 README 版本/工具数量及双语工具目录的签名、默认值和最低档位。部署文件清单同时包含这些双语入口。
 
