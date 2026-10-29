@@ -162,7 +162,7 @@ class ForwardTests(unittest.TestCase):
 
     def test_mcp_tool_exposes_and_enqueues_native_context(self):
         self.ready()
-        tool = next(tool for tool in server.mcp._tool_manager.list_tools() if tool.name == 'forward_email')
+        tool = next(tool for tool in server.create_mcp('direct_send')._tool_manager.list_tools() if tool.name == 'forward_email')
         self.assertTrue({'source_message_id', 'source_account_id', 'identity_id', 'idempotency_key'}
                         <= set(tool.parameters['required']))
         self.assertEqual(tool.parameters['properties']['forward_mode']['default'], 'forward_attachment')

@@ -2,28 +2,40 @@
 
 [返回工程介绍](../README.md)
 
-## 16 个 MCP 工具
+## 16 个 MCP 工具（总目录）
 
-| 工具 | 用途与主要参数 |
-|---|---|
-| `list_mail_folders()` | 返回已配置的 Inbox/Sent 本地 mbox 及可用性；待发 Outbox 未接入 |
-| `query_email(keyword="", senders=None, start=None, end=None, folders=None, page_size=50, cursor=None)` | 分页查询；省略 `folders` 时只查 Inbox，可显式选择 Sent 或 Inbox+Sent；空关键词允许枚举，发件人按完整地址匹配，时间为带时区的 ISO 半开区间 `start ≤ date < end`，每页 1–200 封 |
-| `read_emails(locators, include_quoted_history=False, max_body_chars=30000)` | 一次读取 1–20 封，返回逐封结果、当前正文、引用正文、截断标记及附件 ID/哈希；正文限制参数范围 1000–100000 字符 |
-| `read_attachment(locator, attachment_id, offset=0, max_bytes=262144)` | 分段返回 base64、完整附件 SHA-256、总长度和 `next_offset`；单段最多 1 MiB |
-| `search_email(keyword, days=None, sender=None)` | 旧搜索接口：关键词必填、发件人子串匹配、无分页；新集成优先使用 `query_email` |
-| `read_email(message_id)` | 旧单封读取接口，返回正文和附件元数据，默认省略历史引用 |
-| `list_recent_email(limit=20)` | 旧列表接口，按日期倒序，最多 100 封 |
-| `compose_email(to, subject, body, cc=None, bcc=None)` | 打开 Thunderbird 原生写信窗口，不自动发送 |
-| `create_draft(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | 通过扩展保存原生草稿，绝不调用发送；轮询状态直到 `drafted` |
-| `send_email(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | 通过扩展实际发送用户授权的邮件；返回入队结果后须查询状态 |
-| `reply_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, reply_mode="reply_all", cc=None, bcc=None, attachments=None, body_format="plain")` | 用原生回复上下文发送；支持 `reply_all` / `reply_sender`；收件范围须与 Thunderbird 原生结果完全一致，需要 `reply_v1` |
-| `forward_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, forward_mode="forward_attachment", cc=None, bcc=None, attachments=None, body_format="plain")` | 用原生附件转发上下文发送；已授权说明是精确正文，原邮件保留为 Thunderbird 原生 `.eml`；需要 `forward_v1` |
-| `diagnose_forward_preparation(source_message_id, source_account_id, from_email, identity_id, diagnostic_key, body_format="plain")` | 独立 prepare-only 诊断；真实创建并关闭原生转发 tab，但绝不发送或保存草稿，只记录有界的非敏感大小、哈希与分类结果；附件分类最多保留 16 项，并以 `count` / `truncated` 表示完整数量；需要 `forward_diagnostic_v1` |
-| `get_forward_diagnostic_status(diagnostic_key)` | 查询独立诊断队列；不读取或改变发送队列 |
-| `get_send_status(idempotency_key)` | 查询同一请求的持久状态、Message-ID、发送副本验证结果 |
-| `get_send_capabilities()` | 查询扩展心跳、可用发件身份和特性；不发送邮件 |
+| 工具 | 最低档位 | 用途与主要参数 |
+|---|---|---|
+| `list_mail_folders()` | `read_only` | 返回已配置的 Inbox/Sent 本地 mbox 及可用性；待发 Outbox 未接入 |
+| `query_email(keyword="", senders=None, start=None, end=None, folders=None, page_size=50, cursor=None)` | `read_only` | 分页查询；省略 `folders` 时只查 Inbox，可显式选择 Sent 或 Inbox+Sent；空关键词允许枚举，发件人按完整地址匹配，时间为带时区的 ISO 半开区间 `start ≤ date < end`，每页 1–200 封 |
+| `read_emails(locators, include_quoted_history=False, max_body_chars=30000)` | `read_only` | 一次读取 1–20 封，返回逐封结果、当前正文、引用正文、截断标记及附件 ID/哈希；正文限制参数范围 1000–100000 字符 |
+| `read_attachment(locator, attachment_id, offset=0, max_bytes=262144)` | `read_only` | 分段返回 base64、完整附件 SHA-256、总长度和 `next_offset`；单段最多 1 MiB |
+| `search_email(keyword, days=None, sender=None)` | `read_only` | 旧搜索接口：关键词必填、发件人子串匹配、无分页；新集成优先使用 `query_email` |
+| `read_email(message_id)` | `read_only` | 旧单封读取接口，返回正文和附件元数据，默认省略历史引用 |
+| `list_recent_email(limit=20)` | `read_only` | 旧列表接口，按日期倒序，最多 100 封 |
+| `compose_email(to, subject, body, cc=None, bcc=None)` | `review` | 打开 Thunderbird 原生写信窗口，不自动发送 |
+| `create_draft(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | `review` | 通过扩展保存原生草稿，绝不调用发送；轮询状态直到 `drafted` |
+| `send_email(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | 通过扩展实际发送用户授权的邮件；返回入队结果后须查询状态 |
+| `reply_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, reply_mode="reply_all", cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | 用原生回复上下文发送；支持 `reply_all` / `reply_sender`；收件范围须与 Thunderbird 原生结果完全一致，需要 `reply_v1` |
+| `forward_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, forward_mode="forward_attachment", cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | 用原生附件转发上下文发送；已授权说明是精确正文，原邮件保留为 Thunderbird 原生 `.eml`；需要 `forward_v1` |
+| `diagnose_forward_preparation(source_message_id, source_account_id, from_email, identity_id, diagnostic_key, body_format="plain")` | `review` | 独立 prepare-only 诊断；真实创建并关闭原生转发 tab，但绝不发送或保存草稿，只记录有界的非敏感大小、哈希与分类结果；附件分类最多保留 16 项，并以 `count` / `truncated` 表示完整数量；需要 `forward_diagnostic_v1` |
+| `get_forward_diagnostic_status(diagnostic_key)` | `read_only` | 查询独立诊断队列；不读取或改变发送队列 |
+| `get_send_status(idempotency_key)` | `read_only` | 查询同一请求的持久状态、Message-ID、发送副本验证结果 |
+| `get_send_capabilities()` | `read_only` | 查询扩展心跳、可用发件身份、特性和当前服务档位；不发送邮件 |
 
 `to`、`cc`、`bcc` 在草稿/自动发送接口中是纯邮箱地址数组；`from_email` 必须匹配唯一的现有身份。完整输入 schema 由 MCP `tools/list` 返回。
+
+## 服务端能力档位
+
+在 MCP 客户端的 `env` 中设置 `THUNDERBIRD_MCP_PROFILE`。值必须精确为以下之一；变量省略时默认为 `review`，空值、大小写变体和未知值都会使服务拒绝启动。
+
+| 档位 | 工具数 | 服务端公布的能力 |
+|---|---:|---|
+| `read_only` | 10 | 邮件查询、正文/附件读取，以及发送与诊断状态查询；不公布打开写信窗口、保存草稿、prepare-only 诊断或直接发送工具 |
+| `review`（默认） | 13 | `read_only` 加 `compose_email`、`create_draft`、`diagnose_forward_preparation`；不公布任何直接发送工具 |
+| `direct_send` | 16 | 全部工具，包括 `send_email`、`reply_email`、`forward_email` |
+
+档位在服务进程启动时确定。修改配置后须重新连接或重启 MCP 服务并刷新工具列表；客户端保存着旧连接时，编辑 JSON 本身不会改变现有进程。`get_send_capabilities()` 返回 `mcp_profile`、`review_enabled`、`direct_send_enabled`，可用于核对实际连接。档位只控制 MCP 服务公布哪些工具，不代替逐封授权、幂等检查或 Thunderbird 扩展能力检查。
 
 ## Inbox 与已发送副本查询
 
@@ -120,7 +132,7 @@ install -m 600 dist/native-host.json "$HOME/Library/Mozilla/NativeMessagingHosts
 
 `native-send-launcher` 使用自身目录下的 `.venv/bin/python`，支持含空格的安装路径。`scripts/deploy_send.py` 的 `--target` 必须与打包时 `--install-root` 一致；`--check` 和实际部署都检查主机路径、名称、stdio 类型和唯一扩展 ID。脚本的参数以 `--help` 为准。
 
-重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。回复、转发和 prepare-only 诊断需要加载与源码匹配的 0.11.0 扩展，新源码不能让旧扩展自动获得能力。`get_send_capabilities().ready` 应为 true，按所需功能检查 `attachments_v1`、`draft_v1`、`html_v1`、`reply_v1`、`forward_v1`、`forward_diagnostic_v1` 和返回的账户/身份信息。发件身份使用返回的实际身份；可按需预览普通草稿，回复和转发直接发送须有用户授权。不得用真实发信作为普通安装自检。
+重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。回复、转发和 prepare-only 诊断需要加载与源码匹配的 0.12.0 扩展，新源码不能让旧扩展自动获得能力。直接发送还须以 `THUNDERBIRD_MCP_PROFILE=direct_send` 启动服务。`get_send_capabilities().ready` 应为 true，按所需功能检查 `attachments_v1`、`draft_v1`、`html_v1`、`reply_v1`、`forward_v1`、`forward_diagnostic_v1` 和返回的账户/身份信息。发件身份使用返回的实际身份；可按需预览普通草稿，回复和转发直接发送须有用户授权。不得用真实发信作为普通安装自检。
 
 停用自动发送可在 Thunderbird 中停用扩展；未领取请求会过期，但已领取或提交的邮件不能靠停用撤回。查询和原生 `compose_email` 不依赖扩展。多个本地 MCP 客户端使用同一系统用户时，共用该用户的发送队列与已启用扩展；各客户端须管理自己的调用权限。
 

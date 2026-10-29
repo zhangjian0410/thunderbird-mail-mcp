@@ -103,7 +103,7 @@ class ReplyTests(unittest.TestCase):
 
     def test_mcp_tool_exposes_and_enqueues_explicit_context(self):
         self.ready()
-        tool = next(t for t in server.mcp._tool_manager.list_tools() if t.name == 'reply_email')
+        tool = next(t for t in server.create_mcp('direct_send')._tool_manager.list_tools() if t.name == 'reply_email')
         self.assertTrue({'source_message_id','source_account_id','identity_id','idempotency_key'} <= set(tool.parameters['required']))
         with patch.object(mail_sender,'JOURNAL',self.j):
             server.reply_email(to=self.payload['to'],cc=self.payload['cc'],subject=self.payload['subject'],

@@ -20,6 +20,37 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_read_only_stdio_profile_hides_all_review_and_send_tools(self):
+        with TemporaryDirectory(prefix='read only protocol ') as directory:
+            temporary = Path(directory)
+            parameters = StdioServerParameters(
+                command=sys.executable,
+                args=['-B', str(ROOT / 'server.py')],
+                env={
+                    'THUNDERBIRD_INBOX_PATH': str(temporary / 'Inbox'),
+                    'THUNDERBIRD_SENT_PATH': str(temporary / 'Sent'),
+                    'THUNDERBIRD_MCP_PROFILE': 'read_only',
+                },
+                cwd=temporary,
+            )
+            with anyio.fail_after(30), (temporary / 'stderr.log').open('w') as diagnostics:
+                async with stdio_client(parameters, errlog=diagnostics) as (reader, writer):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        names = {tool.name for tool in (await session.list_tools()).tools}
+                        self.assertEqual(len(names), 10)
+                        self.assertFalse({
+                            'compose_email', 'create_draft', 'diagnose_forward_preparation',
+                            'send_email', 'reply_email', 'forward_email',
+                        } & names)
+                        result = await session.call_tool('get_send_capabilities')
+                        self.assertFalse(result.isError, result.content)
+                        capabilities = result.structuredContent or json.loads(result.content[0].text)
+                        self.assertEqual(capabilities['mcp_profile'], 'read_only')
+                        self.assertFalse(capabilities['review_enabled'])
+                        self.assertFalse(capabilities['direct_send_enabled'])
+                        self.assertTrue((await session.call_tool('compose_email', {})).isError)
+
     async def test_forward_tool_stdio_schema_validation_queue_and_idempotency(self):
         with TemporaryDirectory(prefix='forward protocol ') as directory:
             temporary = Path(directory)
@@ -35,7 +66,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             )
             parameters = StdioServerParameters(command=sys.executable, args=['-B', '-c', bootstrap],
                 env={'THUNDERBIRD_INBOX_PATH': str(temporary/'Inbox'),
-                     'THUNDERBIRD_SENT_PATH': str(temporary/'Sent')}, cwd=temporary)
+                     'THUNDERBIRD_SENT_PATH': str(temporary/'Sent'),
+                     'THUNDERBIRD_MCP_PROFILE': 'direct_send'}, cwd=temporary)
             args = dict(to=['one@example.com'], cc=[], bcc=[], subject='Fwd: approved', body='Approved commentary',
                         from_email='sender@example.com', idempotency_key='stdio-forward',
                         source_message_id='<original@example.test>', source_account_id='source1', identity_id='id1')
@@ -78,7 +110,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 f'runpy.run_path({str(ROOT/"server.py")!r},run_name="__main__")'
             )
             parameters = StdioServerParameters(command=sys.executable,args=['-B','-c',bootstrap],
-                env={'THUNDERBIRD_INBOX_PATH':str(temporary/'Inbox'),'THUNDERBIRD_SENT_PATH':str(temporary/'Sent')},cwd=temporary)
+                env={'THUNDERBIRD_INBOX_PATH':str(temporary/'Inbox'),'THUNDERBIRD_SENT_PATH':str(temporary/'Sent'),
+                     'THUNDERBIRD_MCP_PROFILE':'direct_send'},cwd=temporary)
             args = dict(to=['one@example.com'],cc=[],bcc=[],subject='Re: approved',body='Approved text',
                         from_email='sender@example.com',idempotency_key='stdio-reply',
                         source_message_id='<original@example.test>',source_account_id='account1',identity_id='id1')
@@ -126,6 +159,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 config['command']: sys.executable,
                 config['args'][0]: str(ROOT / 'server.py'),
                 config['env']['THUNDERBIRD_INBOX_PATH']: str(mailbox),
+                config['env']['THUNDERBIRD_MCP_PROFILE']: 'review',
             }
             parameters = StdioServerParameters(
                 command=replacements[config['command']],
@@ -142,9 +176,11 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                                 initialized = await session.initialize()
                                 self.assertEqual(initialized.serverInfo.name, 'Thunderbird Mail')
                                 tools = (await session.list_tools()).tools
-                                self.assertEqual(len(tools), 16)
+                                self.assertEqual(len(tools), 13)
                                 self.assertTrue({'query_email', 'read_emails', 'read_attachment',
-                                                 'create_draft', 'send_email', 'reply_email', 'forward_email'} <= {tool.name for tool in tools})
+                                                 'compose_email', 'create_draft'} <= {tool.name for tool in tools})
+                                self.assertFalse({'send_email', 'reply_email', 'forward_email'} & {tool.name for tool in tools})
+                                self.assertTrue((await session.call_tool('send_email', {})).isError)
 
                                 async def call(tool, arguments=None):
                                     result = await session.call_tool(tool, arguments or {})

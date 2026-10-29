@@ -16,9 +16,10 @@ class PackageTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             output = Path(directory)
             module.build(ROOT, output, Path('/example/mail-mcp-server'))
+            expected_manifest = json.loads((ROOT / 'extension/manifest.json').read_text())
             with zipfile.ZipFile(output/'thunderbird-native-send.xpi') as archive:
                 manifest = json.loads(archive.read('manifest.json'))
-                self.assertEqual(manifest['version'], '0.11.0')
+                self.assertEqual(manifest['version'], expected_manifest['version'])
                 self.assertIn('compose.send', manifest['permissions'])
                 self.assertIn(b'forward_v1', archive.read('background.js'))
                 self.assertIn(b'forward_diagnostic_v1', archive.read('background.js'))

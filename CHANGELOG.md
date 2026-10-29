@@ -1,5 +1,12 @@
 # 版本变更
 
+## 0.12.0 · 服务端能力档位
+
+- 新增严格的 `THUNDERBIRD_MCP_PROFILE=read_only|review|direct_send` 服务端档位；省略时使用 `review`，未知值拒绝启动，不再把所有工具默认公布给客户端。
+- `read_only` 仅公布 10 个查询、读取和状态工具；`review` 在此基础上公布写信窗口、保存草稿和 prepare-only 诊断，共 13 个；`direct_send` 才额外公布 `send_email`、`reply_email`、`forward_email`，共 16 个。
+- `get_send_capabilities` 现在返回当前 `mcp_profile`、`review_enabled` 和 `direct_send_enabled`，便于客户端核对实际服务进程，而不是根据配置文件猜测。
+- 通用 stdio 示例和测试默认使用 `review`；直接发送的协议测试显式启用 `direct_send`，并验证默认服务不能调用隐藏的发送工具。
+
 ## 0.11.0 · 原生 `.eml` metadata 验证
 
 - 真实诊断确认 Thunderbird 的原生 `.eml` 可能无法通过 `compose.getAttachmentFile` 回读。发送路径因此保留 `forwardAsAttachment` 生成的继承附件，不再删除、重附 raw File 或声称原生附件字节等价。

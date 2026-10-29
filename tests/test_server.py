@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from mail_composer import ComposeInputError
+import server
 from server import compose_email, mcp
 
 
@@ -13,22 +14,23 @@ class ServerTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         project = (root / 'pyproject.toml').read_text()
         version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE).group(1)
-        tool_count = len(mcp._tool_manager.list_tools())
+        total_tool_count = len(server.create_mcp('direct_send')._tool_manager.list_tools())
         manifest = json.loads((root / 'extension/manifest.json').read_text())
         self.assertEqual(manifest['version'], version)
         self.assertIn(
-            f'当前版本 **{version}**，提供 **{tool_count} 个工具**',
+            f'当前版本 **{version}**，总计 **{total_tool_count} 个工具**',
             (root / 'README.md').read_text())
         self.assertIn(
-            f'## {tool_count} 个 MCP 工具',
+            f'## {total_tool_count} 个 MCP 工具（总目录）',
             (root / 'docs/reference.md').read_text())
 
     def test_html_format_is_exposed_and_reaches_both_queue_actions(self):
-        import server, mail_sender
+        import mail_sender
         from pathlib import Path
         from tempfile import TemporaryDirectory
+        direct_mcp = server.create_mcp('direct_send')
         for name in ('send_email', 'create_draft'):
-            tool = next(t for t in mcp._tool_manager.list_tools() if t.name == name)
+            tool = next(t for t in direct_mcp._tool_manager.list_tools() if t.name == name)
             self.assertEqual(tool.parameters['properties']['body_format']['default'], 'plain')
         with TemporaryDirectory() as directory:
             journal = mail_sender.SendJournal(Path(directory)/'private'/'send.db')
@@ -40,16 +42,42 @@ class ServerTests(unittest.TestCase):
                     self.assertEqual(job['payload']['body_format'], 'html')
                     self.assertEqual(job['payload'].get('action','send'), 'draft' if name == 'create_draft' else 'send')
 
-    def test_server_registers_read_tools_and_native_compose_tool(self) -> None:
-        tool_names = {tool.name for tool in mcp._tool_manager.list_tools()}
+    def test_capability_profiles_register_only_allowed_tools(self) -> None:
+        status_tools = {'get_send_status', 'get_send_capabilities', 'get_forward_diagnostic_status'}
+        read_tools = {
+            'list_mail_folders', 'query_email', 'read_emails', 'read_attachment',
+            'search_email', 'read_email', 'list_recent_email', *status_tools,
+        }
+        review_tools = read_tools | {'compose_email', 'create_draft', 'diagnose_forward_preparation'}
+        direct_tools = review_tools | {'send_email', 'reply_email', 'forward_email'}
+        expected = {
+            'read_only': read_tools,
+            'review': review_tools,
+            'direct_send': direct_tools,
+        }
 
-        self.assertEqual(
-            tool_names,
-            {"search_email", "read_email", "list_recent_email", "compose_email",
-             "list_mail_folders", "query_email", "read_emails", "read_attachment",
-             "send_email", "reply_email", "forward_email", "get_send_status", "get_send_capabilities", "create_draft",
-             "diagnose_forward_preparation", "get_forward_diagnostic_status"},
-        )
+        for profile, names in expected.items():
+            with self.subTest(profile=profile):
+                actual = {tool.name for tool in server.create_mcp(profile)._tool_manager.list_tools()}
+                self.assertEqual(actual, names)
+        self.assertEqual({tool.name for tool in mcp._tool_manager.list_tools()}, review_tools)
+
+    def test_invalid_capability_profile_fails_closed(self) -> None:
+        for value in ('', 'send', 'DIRECT_SEND', 'direct-send', 'unknown'):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'THUNDERBIRD_MCP_PROFILE'):
+                server.normalize_capability_profile(value)
+
+    def test_capabilities_report_active_server_profile(self) -> None:
+        import mail_sender
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory:
+            journal = mail_sender.SendJournal(Path(directory)/'private'/'send.db')
+            journal.heartbeat([{'id':'id1','email':'sender@example.com'}])
+            with patch.object(mail_sender, 'JOURNAL', journal), patch.object(server, 'CAPABILITY_PROFILE', 'review'):
+                result = server.get_send_capabilities()
+        self.assertEqual(result['mcp_profile'], 'review')
+        self.assertTrue(result['review_enabled'])
+        self.assertFalse(result['direct_send_enabled'])
 
     def test_new_tools_read_real_fixture_and_attachment(self):
         from pathlib import Path

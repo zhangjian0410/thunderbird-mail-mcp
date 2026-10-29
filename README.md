@@ -1,6 +1,6 @@
 # Thunderbird Mail MCP
 
-让 AI Agent 通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 查询本机 Thunderbird 收件箱和已发送邮件（Sent）、读取附件、创建草稿，以及直接发送用户明确授权的邮件。
+让 AI Agent 通过 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 查询本机 Thunderbird 收件箱和已发送邮件（Sent）、读取附件、创建草稿，以及在显式启用后直接发送用户明确授权的邮件。服务默认使用 `review` 档位，不公布直接发送工具。
 **发送类工具各自独立：`send_email` 发送新邮件，`reply_email` / `forward_email` 发送来源绑定的原生回复或附件转发，`create_draft` 只保存草稿，`compose_email` 只打开写信窗口。保存草稿不是发送的前置条件。**
 
 这是一个独立的 Python MCP server，使用标准 **stdio** 传输。它不依赖 Codex、Qoder、QwenWork 或任何模型供应商的 SDK、账号、API Key、Skill、私有配置目录。客户端负责启动服务、选择模型和管理工具调用权限；服务负责邮件数据与 Thunderbird 的交互。
@@ -21,7 +21,19 @@
 | Prepare-only 转发诊断 | `diagnose_forward_preparation`、`get_forward_diagnostic_status` | 创建并检查原生附件转发后关闭目标窗口，不保存草稿或发送；诊断队列与发送队列隔离，需要扩展 `forward_diagnostic_v1` |
 | 查询发送条件和结果 | `get_send_capabilities`、`get_send_status` | 查询扩展在线状态、发件身份、特性及持久请求状态，提供幂等去重和发送副本验证信息 |
 
-查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.11.0**，提供 **16 个工具**，详见[工具与行为参考](docs/reference.md)。回复、转发和 prepare-only 诊断须加载对应新版扩展并重新连接 MCP；更新文件不代表旧进程已生效。
+查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.12.0**，总计 **16 个工具**；默认 `review` 公布 13 个，`read_only` 公布 10 个，只有 `direct_send` 公布全部 16 个。详见[工具与行为参考](docs/reference.md)。回复、转发和 prepare-only 诊断须加载对应新版扩展并重新连接 MCP；更新文件不代表旧进程已生效。
+
+## 服务端能力档位
+
+通过客户端启动环境变量 `THUNDERBIRD_MCP_PROFILE` 选择档位：
+
+| 值 | 工具数 | 行为 |
+|---|---:|---|
+| `read_only` | 10 | 仅查询、读取和状态工具，不打开写信窗口、不保存草稿、不运行 prepare-only 诊断、不发送 |
+| `review`（默认） | 13 | 在只读能力上增加 `compose_email`、`create_draft`、`diagnose_forward_preparation`，仍不公布直接发送工具 |
+| `direct_send` | 16 | 再增加 `send_email`、`reply_email`、`forward_email` |
+
+值必须精确匹配；空值或未知值会使服务拒绝启动。修改后要重新连接或重启 MCP 服务并刷新工具列表。`get_send_capabilities` 会返回当前 `mcp_profile` 及 `review_enabled` / `direct_send_enabled`，供客户端核对实际进程。服务档位限制工具可见性，但不代替逐封发送授权。
 
 ## 查询已发送邮件（Sent）
 
@@ -64,7 +76,7 @@ Sent 默认使用 Inbox 同目录的 `Sent` mbox。若实际存放位置不同�
 
 | 客户端 | 当前依据与验证范围 |
 |---|---|
-| 通用 MCP 客户端 | 自动测试使用官方 MCP Python SDK 和两个任意客户端身份，实际完成 stdio 握手、16 工具发现、临时邮件查询、正文及附件读取 |
+| 通用 MCP 客户端 | 自动测试使用官方 MCP Python SDK 和两个任意客户端身份，实际完成 stdio 握手、三档工具发现、临时邮件查询、正文及附件读取 |
 | Codex | 已有本机接入使用；同样运行 `server.py`，服务不读取 Codex 配置或规则 |
 | Qoder IDE / CLI | [IDE 官方文档](https://docs.qoder.com/user-guide/chat/model-context-protocol)与 [CLI 官方文档](https://docs.qoder.com/cli/mcp-reference)均支持本地 stdio；符合接入条件，尚未做本项目的客户端端到端实测 |
 | QwenWork 桌面端（千问办公） | [官方连接器文档](https://docs.qwenwork.cn/features/connectors)支持自定义 STDIO 服务；符合接入条件，尚未做本项目的客户端端到端实测 |
@@ -78,7 +90,7 @@ Harness 无关不等于操作系统无关。**当前原生部署面向 macOS**�
 - Python **3.10+**，推荐 **3.11**；依赖通过 uv **0.13.0** 和 `uv.lock` 安装。
 - 查询需要可读的本地 **mbox 文件**，支持 Inbox 和 Sent 已发送副本，适用于已有 Thunderbird 本地 POP 邮件。Sent 默认取 Inbox 同目录的 `Sent` 文件，也可单独配置；不会自动发现账户或待发 Outbox，不支持直接读取 Maildir。
 - 打开原生写信窗口需要 Thunderbird 安装在 `/Applications/Thunderbird.app`。
-- 创建草稿、直接发送、回复、转发或 prepare-only 诊断需要 Thunderbird **153+**、与源码匹配的 **0.11.0** 扩展及 native host；查询功能不需要扩展。
+- 创建草稿、直接发送、回复、转发或 prepare-only 诊断需要 Thunderbird **153+**、与源码匹配的 **0.12.0** 扩展及 native host；查询功能不需要扩展。
 - Node **22.23.0** 仅用于开发测试，日常运行 Python 服务不需要 Node。
 
 ## 快速开始
@@ -109,7 +121,8 @@ uv sync --locked --no-build-isolation
       "command": "/absolute/path/thunderbird-mail-mcp/.venv/bin/python",
       "args": ["/absolute/path/thunderbird-mail-mcp/server.py"],
       "env": {
-        "THUNDERBIRD_INBOX_PATH": "/absolute/path/to/Inbox"
+        "THUNDERBIRD_INBOX_PATH": "/absolute/path/to/Inbox",
+        "THUNDERBIRD_MCP_PROFILE": "review"
       }
     }
   }
@@ -120,11 +133,11 @@ uv sync --locked --no-build-isolation
 
 Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其官方说明放入 `mcpServers`。QwenWork 桌面端在扩展 → 连接器 → 添加中导入 JSON，或选择 STDIO 手动填写等价的启动命令及环境变量。其他客户端按自己的格式填写相同的 `command`、`args`、`env`。
 
-`THUNDERBIRD_INBOX_PATH` 指定收件箱；省略时使用 `~/Library/Thunderbird/Inbox` 占位路径。可选的 `THUNDERBIRD_SENT_PATH` 指定已发送副本 mbox，省略时取 Inbox 同目录的 `Sent`。两者都支持绝对路径及 `~`，不会自动扫描账户或核验 Thunderbird 的 FCC 保存位置；Sent 实际位置不同应显式配置。无需填写邮箱密码或模型 API Key。
+`THUNDERBIRD_INBOX_PATH` 指定收件箱；省略时使用 `~/Library/Thunderbird/Inbox` 占位路径。可选的 `THUNDERBIRD_SENT_PATH` 指定已发送副本 mbox，省略时取 Inbox 同目录的 `Sent`。两者都支持绝对路径及 `~`，不会自动扫描账户或核验 Thunderbird 的 FCC 保存位置；Sent 实际位置不同应显式配置。`THUNDERBIRD_MCP_PROFILE` 省略时为 `review`；只有确实需要直接发送且调用方会管理逐封授权时才设为 `direct_send`。无需填写邮箱密码或模型 API Key。
 
 ### 3. 验证查询
 
-在客户端启用服务并刷新工具列表，应能发现 16 个工具。先调用 `list_mail_folders` 确认 Inbox 可用，再查询和读取邮件，例如：
+在客户端启用服务并刷新工具列表，默认 `review` 应发现 13 个工具；`read_only` 为 10 个，`direct_send` 为 16 个。先调用 `get_send_capabilities` 核对 `mcp_profile`，再用 `list_mail_folders` 确认 Inbox 可用并查询邮件，例如：
 
 > 查询发件人为 sender@example.test 的邮件，列出主题和日期；读取我指定的一封邮件，不创建草稿或发送。
 
@@ -134,7 +147,7 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 
 ### 4. 使用写信能力
 
-`compose_email` 只需本机 Thunderbird。`create_draft`、`send_email`、`reply_email`、`forward_email` 和 prepare-only 诊断都需要已启用的扩展及 native host；先通过 `get_send_capabilities` 确认 `ready=true` 和实际发件身份。附件、草稿、HTML、回复、转发、诊断分别要求扩展支持 `attachments_v1`、`draft_v1`、`html_v1`、`reply_v1`、`forward_v1`、`forward_diagnostic_v1`。
+`compose_email` 只需本机 Thunderbird。`create_draft`、`send_email`、`reply_email`、`forward_email` 和 prepare-only 诊断都需要已启用的扩展及 native host；先通过 `get_send_capabilities` 确认 `ready=true`、实际发件身份和档位。直接发送、回复或转发还要求服务以 `direct_send` 启动。附件、草稿、HTML、回复、转发、诊断分别要求扩展支持 `attachments_v1`、`draft_v1`、`html_v1`、`reply_v1`、`forward_v1`、`forward_diagnostic_v1`。
 
 按任务选择接口：只需保存草稿时调用 `create_draft`；用户已明确授权直接发送时调用 `send_email`。两者提交请求后，都用 `get_send_status` 查询结果：`drafted` 表示保存成功，`sent` 表示 Thunderbird 确认提交至发件服务器。`pending` 只是受理请求，不能据此宣称已经发送。
 
@@ -142,7 +155,7 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 
 ## 使用边界
 
-- 当前服务始终公布所有 16 个工具，没有服务端只读模式开关。仅需查询时，应在客户端限制全部写信、回复、转发和诊断工具。
+- 服务端按 `read_only` / `review` / `direct_send` 只注册所选档位允许的工具；默认 `review` 不公布直接发送工具。档位在进程启动时固定，修改环境变量后须重连。隐藏工具的 MCP 调用会失败。
 - 发送权限由调用方管理。服务不读取任何 Harness 的审批白名单，也不解析自然语言授权；调用方须在调用发送、回复或转发工具前取得收件对象与用途的明确授权。服务端没有逐封人工审批记录或确认令牌校验；客户端是否弹出确认由所用 Harness 配置决定。
 - `pending` / `sending` 不代表发送成功；`sent` 表示 Thunderbird 确认提交，不保证收件人收到。同一封邮件重试必须复用幂等键，结果不明时不能换键重发。
 - 本地完整枚举不等于服务器同步完成；检查查询返回的 `coverage`、分页和正文截断信息。
