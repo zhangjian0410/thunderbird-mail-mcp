@@ -21,7 +21,7 @@ This is a standalone Python MCP server using standard **stdio** transport. It do
 | Send new mail | `send_email` | Use the extension's `compose.sendMessage(..., {mode: "sendNow"})` with plain text, HTML, or attachments. No draft or manual Send click is required. |
 | Reply or reply all | `reply_email` | Locate the source uniquely by RFC Message-ID and account, then use `compose.beginReply`. Authorized recipients, body, and sender identity must be explicit. Requires `reply_v1`. |
 | Forward as attachment | `forward_email` | Locate the source by RFC Message-ID and account, then use `compose.beginForward(..., "forwardAsAttachment")`. Preserve Thunderbird's native `.eml` and check the source raw fingerprint, attachment ID, and metadata. Requires `forward_v1`. |
-| Diagnose forward preparation | `diagnose_forward_preparation`, `get_forward_diagnostic_status` | Prepare and inspect a native attachment forward, then close its window without saving or sending. Uses a separate diagnostic queue. Requires `forward_diagnostic_v1`. |
+| Diagnose forward preparation | `diagnose_forward_preparation`, `get_forward_diagnostic_status` | Prepare and inspect a native attachment forward without saving or sending, then attempt to close its window. Check `close_confirmed`. Uses a separate diagnostic queue. Requires `forward_diagnostic_v1`. |
 | Inspect capabilities and outcomes | `get_send_capabilities`, `get_send_status` | Read extension health, sender identities, features, the active server profile, and durable request status, including idempotency and sent-copy verification. |
 
 Queries do not modify mbox files or mark messages as read. The server does not connect directly to SMTP, POP, or IMAP; Thunderbird handles account authentication and delivery. Current version: **0.12.0**, with **16 tools** in total. The default `review` profile exposes 13, `read_only` exposes 10, and `direct_send` exposes all 16. See the [tool and behavior reference](docs/reference.md).
@@ -40,7 +40,7 @@ Set `THUNDERBIRD_MCP_PROFILE` in the environment used to launch the server:
 
 Values must match exactly. An empty or unknown value prevents startup. After changing the setting, restart or reconnect the MCP server and refresh the tool list. `get_send_capabilities` reports `mcp_profile`, `review_enabled`, and `direct_send_enabled` so clients can verify the connected process.
 
-Profiles control which tools the server registers. They do not replace authorization for individual messages.
+Profiles control which tools the server registers. They do not replace authorization for individual messages or cancel queued work. Status/capability calls may initialize or update the local journal even in `read_only`.
 
 ## Query sent mail
 
@@ -182,7 +182,7 @@ Saving a draft does not trigger sending. If a draft is previewed before sending,
 | `scripts/` / `tests/` | Packaging, deployment checks, sensitive-data scans, and automated tests |
 | `examples/mcp-stdio.json` | Client-independent local launch example |
 
-This README is the primary English entry point. A complete [Chinese README](README.zh-CN.md) is also available. The tool reference and development guide are available in both languages:
+This README is the primary English entry point. A complete [Chinese README](README.zh-CN.md) is also available. The tool reference, development guide, and changelog are available in both languages:
 
 - [Tools, data boundaries, and writing deployment](docs/reference.md)
 - [Development, dependency updates, CI, and sensitive-data checks](docs/development.md)

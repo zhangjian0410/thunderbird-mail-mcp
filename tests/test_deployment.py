@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
@@ -6,6 +7,14 @@ from unittest.mock import patch
 from scripts import deploy_send, package_send
 
 class DeploymentTests(unittest.TestCase):
+    def test_deployment_includes_packaged_runtime_modules(self):
+        project = (deploy_send.SOURCE / 'pyproject.toml').read_text()
+        declaration = re.search(r'^py-modules\s*=\s*(\[.*?\])', project, re.MULTILINE | re.DOTALL)
+        modules = ast.literal_eval(declaration.group(1))
+        required = {f'{module}.py' for module in modules}
+        self.assertFalse(required - set(deploy_send.FILES),
+                         f'Missing deployed runtime modules: {required - set(deploy_send.FILES)}')
+
     def test_prepared_documentation_keeps_bilingual_navigation_available(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -14,7 +23,7 @@ class DeploymentTests(unittest.TestCase):
             package_send.build(deploy_send.SOURCE, root / 'package', root)
             changes = deploy_send.prepare(root, root / 'package', root / 'native')
             deployed_paths = {path.resolve() for path in changes}
-            for entry in ('docs/reference.md', 'docs/development.md', 'CHANGELOG.md'):
+            for entry in ('README.md', 'docs/reference.md', 'docs/development.md', 'CHANGELOG.md'):
                 for language in ('', '.zh-CN'):
                     document = root / entry.replace('.md', f'{language}.md')
                     text = changes[document][0].decode()

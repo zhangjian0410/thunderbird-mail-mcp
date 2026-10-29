@@ -27,6 +27,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 command=sys.executable,
                 args=['-B', str(ROOT / 'server.py')],
                 env={
+                    'HOME': str(temporary),
                     'THUNDERBIRD_INBOX_PATH': str(temporary / 'Inbox'),
                     'THUNDERBIRD_SENT_PATH': str(temporary / 'Sent'),
                     'THUNDERBIRD_MCP_PROFILE': 'read_only',
@@ -37,7 +38,9 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                 async with stdio_client(parameters, errlog=diagnostics) as (reader, writer):
                     async with ClientSession(reader, writer) as session:
                         await session.initialize()
-                        names = {tool.name for tool in (await session.list_tools()).tools}
+                        tools = (await session.list_tools()).tools
+                        self.assertTrue(all(tool.description and tool.description.strip() for tool in tools))
+                        names = {tool.name for tool in tools}
                         self.assertEqual(len(names), 10)
                         self.assertFalse({
                             'compose_email', 'create_draft', 'diagnose_forward_preparation',
@@ -49,7 +52,10 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(capabilities['mcp_profile'], 'read_only')
                         self.assertFalse(capabilities['review_enabled'])
                         self.assertFalse(capabilities['direct_send_enabled'])
+                        self.assertFalse(capabilities['ready'])
+                        self.assertEqual(capabilities['identities'], [])
                         self.assertTrue((await session.call_tool('compose_email', {})).isError)
+            self.assertTrue((temporary / 'Library/Application Support/ThunderbirdMailMCP/send.sqlite3').is_file())
 
     async def test_forward_tool_stdio_schema_validation_queue_and_idempotency(self):
         with TemporaryDirectory(prefix='forward protocol ') as directory:
@@ -120,6 +126,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                     async with ClientSession(reader,writer) as session:
                         await session.initialize()
                         tools = (await session.list_tools()).tools
+                        self.assertEqual(len(tools), 16)
+                        self.assertTrue(all(tool.description and tool.description.strip() for tool in tools))
                         tool = next(t for t in tools if t.name == 'reply_email')
                         self.assertTrue({'source_message_id','source_account_id','identity_id'} <= set(tool.inputSchema['required']))
                         missing = dict(args);missing.pop('source_message_id')
@@ -164,7 +172,8 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             parameters = StdioServerParameters(
                 command=replacements[config['command']],
                 args=['-B', *[replacements[arg] for arg in config['args']]],
-                env={name: replacements[value] for name, value in config['env'].items()},
+                env={**{name: replacements[value] for name, value in config['env'].items()},
+                     'HOME': str(temporary)},
                 cwd=temporary,
             )
             for name in ('neutral-client-alpha', 'neutral-client-beta'):
@@ -177,6 +186,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                                 self.assertEqual(initialized.serverInfo.name, 'Thunderbird Mail')
                                 tools = (await session.list_tools()).tools
                                 self.assertEqual(len(tools), 13)
+                                self.assertTrue(all(tool.description and tool.description.strip() for tool in tools))
                                 self.assertTrue({'query_email', 'read_emails', 'read_attachment',
                                                  'compose_email', 'create_draft'} <= {tool.name for tool in tools})
                                 self.assertFalse({'send_email', 'reply_email', 'forward_email'} & {tool.name for tool in tools})

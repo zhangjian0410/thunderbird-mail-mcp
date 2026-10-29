@@ -34,6 +34,8 @@ Actions 固定到完整 commit SHA，仅授予 `contents: read`，不保留 chec
 
 `python -m unittest discover -s tests` 不执行 `scripts/test_secret_scanner.py`；真实扫描器自检和敏感信息扫描须按下节单独运行，CI 也使用独立步骤执行它们。
 
+协议发现检查要求三个档位的每个已公布工具都有非空描述。能力查询测试使用临时 HOME，避免默认日志读取或初始化用户真实发送状态；回复/转发测试则显式注入临时日志。
+
 ## 双语文档维护
 
 英文主入口为 `README.md`、`docs/reference.md`、`docs/development.md` 和 `CHANGELOG.md`；对应中文版为 `README.zh-CN.md`、`docs/reference.zh-CN.md`、`docs/development.zh-CN.md` 和 `CHANGELOG.zh-CN.md`。两种语言同步修改接口、限制、环境版本、命令及版本记录；版本变更按源码修订核实，并区分导入的历史里程碑与单独公开的版本。README 链接优先指向同语言文档，页面顶部提供语言切换。历史调研报告目前仍为中文。

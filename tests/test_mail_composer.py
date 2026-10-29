@@ -54,7 +54,7 @@ class MailComposerTests(unittest.TestCase):
             {
                 "opened": True,
                 "sent": False,
-                "message": "Thunderbird 写信窗口已打开；邮件尚未发送。",
+                "message": "Thunderbird compose process launched; window readiness is unverified; this tool did not send mail.",
             },
         )
 

@@ -3,6 +3,9 @@
 日期：2026-10-29
 对照项目：[`zhangjian0410/thunderbird-mail-mcp`](https://github.com/zhangjian0410/thunderbird-mail-mcp)，公开基线 `a98b224`（0.11.0）
 
+> Historical comparison against 0.11.0, not the current capability catalog. Version 0.12.0 added server profiles, and later documentation updates added English primary pages with Chinese companions. Recommendations below retain their original context; see the [current reference](../reference.md) and [changelog](../../CHANGELOG.md).
+> 本文保留 0.11.0 时的对比快照；0.12.0 已增加服务端能力档位，后续文档已改为英文主版、中文辅版。下文建议保留原调研语境，当前能力以[工具参考](../reference.zh-CN.md)及[版本变更](../../CHANGELOG.zh-CN.md)为准。
+
 ## 结论先行
 
 GitHub 上目前可见的 Thunderbird MCP 形成了四条技术路线：

@@ -10,6 +10,8 @@ Public source history starts with [0.5.0](https://github.com/zhangjian0410/thund
 - Added English tool and development guides with complete Chinese companions. Clarified heartbeat readiness, status cleanup, diagnostic tab closure, native `.eml` verification limits, and deployment/test scope against the implementation. See [the guide update](https://github.com/zhangjian0410/thunderbird-mail-mcp/commit/36696370d6fa95c43d68a103a108e53f5f46813e).
 - Added checks that both tool catalogs match registered signatures, defaults, and minimum profiles. Extended the deployment file list and navigation check to include bilingual documentation and the generic MCP configuration example.
 - Added this English changelog and its Chinese companion, synchronized navigation and deployment coverage, and distinguished inherited milestones from public source revisions. The server and extension remain at 0.12.0.
+- Audited the documentation and MCP descriptions together: filled missing legacy-tool descriptions, corrected diagnostic closure and draft-preview claims, and documented input/status boundaries in both languages. Marked historical plans/research as snapshots. Protocol tests now require descriptions for every exposed tool and isolate the default journal under a temporary HOME.
+- Clarified that compose results confirm process launch, not window readiness. Added the license and composer module to deployment, with regression checks for README navigation and all runtime modules declared by the package.
 
 ## 0.12.0 · Server capability profiles
 

@@ -17,12 +17,12 @@ FILES = ['mail_sender.py', 'native_host.py', 'server.py', 'pyproject.toml', 'REA
          'scripts/package_send.py', 'scripts/deploy_send.py', 'docs/superpowers/plans/2026-09-14-native-send.md']
 FILES += ['tests/test_attachments.py', 'tests/attachments.test.cjs']
 FILES += ['mail_reader.py', 'tests/test_mail_reader_deleted.py']
-FILES += ['mail_store.py']
+FILES += ['mail_store.py', 'mail_composer.py']
 FILES += ['tests/test_deployment.py']
 FILES += ['tests/test_reply.py', 'tests/reply.test.cjs', 'tests/test_mcp_protocol.py',
           'docs/reference.md', 'CHANGELOG.md', 'uv.lock']
 FILES += ['tests/test_forward.py', 'tests/forward.test.cjs']
-FILES += ['README.zh-CN.md', 'CHANGELOG.zh-CN.md', 'docs/reference.zh-CN.md',
+FILES += ['LICENSE', 'README.zh-CN.md', 'CHANGELOG.zh-CN.md', 'docs/reference.zh-CN.md',
           'docs/development.md', 'docs/development.zh-CN.md', 'examples/mcp-stdio.json']
 
 

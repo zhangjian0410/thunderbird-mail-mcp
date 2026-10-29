@@ -54,7 +54,9 @@ def query_email(
 ) -> dict[str, object]:
     """Read-only local enumeration. Empty keyword allowed; senders match exact addresses.
 
-    start/end are timezone-aware ISO timestamps in a half-open interval. Reuse
+    Keyword matches subject, From, and decoded body (including quoted history),
+    not attachment content. page_size is 1..200. start/end are timezone-aware
+    ISO timestamps in a half-open interval. Reuse
     all parameters with next_cursor until exhausted. Omitted folders reads Inbox
     only; pass ["Sent"] for saved sent copies, or ["Inbox", "Sent"] for both.
     Pending Outbox is not configured. Cursors/locators expire on
@@ -71,7 +73,9 @@ def read_emails(
 ) -> dict[str, object]:
     """Read 1..20 query_email locators without marking read. Returns per-message
     errors, explicit truncation, separate current/quoted bodies, RFC IDs, and
-    attachment IDs/hashes. Quoted-history splitting is heuristic, not deletion.
+    attachment IDs/hashes. max_body_chars is 1000..100000 characters per body;
+    each message is limited to 64 MiB. Quoted-history splitting is heuristic,
+    not deletion. Check both messages and errors in the returned object.
     """
     return READER.read_emails(locators, include_quoted_history, max_body_chars)
 
@@ -94,6 +98,12 @@ def search_email(
     days: int | None = None,
     sender: str | None = None,
 ) -> list[dict[str, str]]:
+    """Legacy Inbox-only search; prefer query_email for pagination and coverage.
+
+    A nonempty keyword searches subject, From, and body. sender is an optional
+    case-insensitive From substring; days is a positive lookback count or None
+    for all dates. Returns newest first, without pagination; skips invalid dates.
+    """
     try:
         return STORE.search_email(keyword=keyword, days=days, sender=sender)
     except InvalidInputError as error:
@@ -101,6 +111,12 @@ def search_email(
 
 
 def read_email(message_id: str) -> dict[str, object]:
+    """Read the first matching RFC Message-ID in Inbox, not a query locator.
+
+    Match the header exactly, including angle brackets. Legacy reads omit detected
+    quoted history and return attachment metadata only, without chunk IDs/hashes
+    or the 64 MiB locator-read limit. Prefer read_emails for unambiguous locators.
+    """
     try:
         return STORE.read_email(message_id)
     except (InvalidInputError, MessageNotFoundError) as error:
@@ -108,6 +124,11 @@ def read_email(message_id: str) -> dict[str, object]:
 
 
 def list_recent_email(limit: int = 20) -> list[dict[str, str]]:
+    """List the newest 1..100 Inbox messages (default 20), skipping invalid dates.
+
+    Legacy summary-only query, without pagination; use query_email for Sent or
+    explicit local coverage. Does not mark messages read or synchronize mail.
+    """
     try:
         return STORE.list_recent_email(limit=limit)
     except InvalidInputError as error:
@@ -121,6 +142,12 @@ def compose_email(
     cc: str | None = None,
     bcc: str | None = None,
 ) -> dict[str, object]:
+    """Launch a native Thunderbird compose window; never send or save a draft.
+
+    to/cc/bcc are strings, not arrays. Requires local macOS Thunderbird but no
+    extension. opened=true confirms process launch, not rendered-window readiness.
+    The user may continue editing, saving, or sending in Thunderbird.
+    """
     try:
         return COMPOSER.compose_email(
             to=to,
@@ -143,9 +170,11 @@ def send_email(
 
     Requires explicit user authorization for the recipients and purpose. body_format
     is plain (default) or html. HTML requires html_v1 capability; supply actual HTML,
-    not Markdown. Preview a native draft before approving formatted mail; HTML sends
-    with a Thunderbird-generated plain-text alternative. Recipient lists contain
-    bare email addresses. Choose a unique key
+    not Markdown. Native draft preview is recommended, not a prerequisite; HTML
+    sends with a Thunderbird-generated plain-text alternative. Recipient lists
+    contain bare email addresses, at most 100 entries per field. After exact-string
+    deduplication within each field, To/Cc/Bcc total at most 100 with at least one To.
+    Subject/body must be nonempty and at most 998/100000 UTF-8 bytes. Choose a unique key
     for this logical send, and reuse it on retries. A returned pending/sending
     status is NOT sent: call get_send_status. Unknown outcomes must not be retried
     under a new key. Retrying the same key never enqueues a second send. Thunderbird
@@ -217,7 +246,11 @@ def diagnose_forward_preparation(source_message_id: str, source_account_id: str,
     """Prepare and inspect a native attachment forward without sending or saving.
 
     Requires forward_diagnostic_v1. This uses a separate diagnostic queue and
-    always closes the exact compose tab. Results contain only bounded stages and
+    attempts to close the exact compose tab; check close_confirmed. A failed
+    close reports close_not_confirmed and retains the tab's send-blocking guard.
+    Poll get_forward_diagnostic_status with the same diagnostic_key. Its pending
+    queue has no automatic expiry; it is distinct from send/draft requests.
+    Results contain only bounded stages and
     attachment size/hash/type classifications; never message bodies, recipients,
     subjects, paths or raw bytes.
     """
@@ -227,7 +260,12 @@ def diagnose_forward_preparation(source_message_id: str, source_account_id: str,
 
 
 def get_forward_diagnostic_status(diagnostic_key: str) -> dict[str, object]:
-    """Read prepare-only forward diagnostic status; this can never send mail."""
+    """Read the separate diagnostic queue; never send or change send requests.
+
+    Status is pending, running, prepared, failed, or not_found. Inspect
+    close_confirmed and failure_stage; reading status does not advance the job.
+    Request context is retained in the local journal, separately from results.
+    """
     return mail_sender.JOURNAL.forward_diagnostic_status(diagnostic_key)
 
 
@@ -238,11 +276,14 @@ def create_draft(
     body_format: str = 'plain',
 ) -> dict[str, object]:
     """Save a native Thunderbird draft; NEVER send. Poll get_send_status until
-    drafted/failed/unknown. Attachments require absolute path and expected sha256,
+    drafted/failed/expired/unknown. Requires draft_v1. Recipients and subject/body
+    use the same limits as send_email. Attachments require attachments_v1,
+    absolute path and expected sha256,
     at most 10 files and 20 MiB total. Reuse the key for retries. Creation alone is
     not sending authorization. Draft save follows the account's Drafts settings.
     body_format is plain (default) or html; HTML requires html_v1. Supply actual
-    HTML, not Markdown, and inspect the saved draft before requesting send approval.
+    HTML, not Markdown. No tool sends an existing draft by ID; a later send_email
+    is a separate authorized request with a new key and final body/attachments.
     """
     return mail_sender.JOURNAL.enqueue(idempotency_key,
         dict(to=to,subject=subject,body=body,from_email=from_email,cc=cc,bcc=bcc,body_format=body_format),
@@ -253,12 +294,21 @@ def get_send_status(idempotency_key: str) -> dict[str, object]:
     """Read durable status without sending. sent confirms outgoing submission, not
     recipient delivery. copy_status=verified means Thunderbird could read a saved
     copy with the same Message-ID. Unknown requires investigation, never resending.
+    Also expires unclaimed send/draft requests older than 60 seconds and clears
+    their payloads/attachment blobs. Claimed jobs without a recorded outcome are
+    reported unknown after 300 seconds. An absent key returns not_found.
     """
     return mail_sender.JOURNAL.status(idempotency_key)
 
 
 def get_send_capabilities() -> dict[str, object]:
-    """Read extension heartbeat and available sender identities; does not send mail."""
+    """Read heartbeat, identities, accounts, features, limits, and active profile.
+
+    ready means a heartbeat no more than 15 seconds old, not sending permission.
+    Check mcp_profile/review_enabled/direct_send_enabled and required features.
+    Offline identity/account/feature lists are empty. May initialize the local
+    journal; never sends mail or verifies human approval.
+    """
     return _send_capabilities(CAPABILITY_PROFILE)
 
 
@@ -310,6 +360,7 @@ def create_mcp(profile: str) -> FastMCP:
                 return _send_capabilities(profile)
 
             profile_capabilities.__name__ = get_send_capabilities.__name__
+            profile_capabilities.__doc__ = get_send_capabilities.__doc__
             server.tool()(profile_capabilities)
         else:
             server.tool()(function)

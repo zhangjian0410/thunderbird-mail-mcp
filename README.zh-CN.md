@@ -20,7 +20,7 @@
 | **直接发送邮件** | **`send_email`** | 通过扩展调用 `compose.sendMessage(..., {mode: "sendNow"})`，支持纯文本、HTML 和附件；无需先调用 `create_draft` 或手动点击发送 |
 | 原生回复或全部回复 | `reply_email` | 用 RFC Message-ID 和账户唯一定位原邮件，通过 `compose.beginReply` 创建真实回复；必须显式提供授权收件人、正文与发件身份，需要扩展 `reply_v1` |
 | 原生附件转发 | `forward_email` | 用 RFC Message-ID 和账户唯一定位原邮件，通过 `compose.beginForward(..., "forwardAsAttachment")` 保留 Thunderbird 原生 `.eml`，并用来源 raw fingerprint、附件 ID 与 metadata 约束；需要扩展 `forward_v1` |
-| Prepare-only 转发诊断 | `diagnose_forward_preparation`、`get_forward_diagnostic_status` | 创建并检查原生附件转发后关闭目标窗口，不保存草稿或发送；诊断队列与发送队列隔离，需要扩展 `forward_diagnostic_v1` |
+| Prepare-only 转发诊断 | `diagnose_forward_preparation`、`get_forward_diagnostic_status` | 创建并检查原生附件转发，不保存草稿或发送，然后尝试关闭目标窗口；须检查 `close_confirmed`。诊断队列与发送队列隔离，需要扩展 `forward_diagnostic_v1` |
 | 查询发送条件和结果 | `get_send_capabilities`、`get_send_status` | 查询扩展在线状态、发件身份、特性及持久请求状态，提供幂等去重和发送副本验证信息 |
 
 查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.12.0**，总计 **16 个工具**；默认 `review` 公布 13 个，`read_only` 公布 10 个，只有 `direct_send` 公布全部 16 个。详见[工具与行为参考](docs/reference.zh-CN.md)。回复、转发和 prepare-only 诊断须加载对应新版扩展并重新连接 MCP；更新文件不代表旧进程已生效。
@@ -35,7 +35,7 @@
 | `review`（默认） | 13 | 在只读能力上增加 `compose_email`、`create_draft`、`diagnose_forward_preparation`，仍不公布直接发送工具 |
 | `direct_send` | 16 | 再增加 `send_email`、`reply_email`、`forward_email` |
 
-值必须精确匹配；空值或未知值会使服务拒绝启动。修改后要重新连接或重启 MCP 服务并刷新工具列表。`get_send_capabilities` 会返回当前 `mcp_profile` 及 `review_enabled` / `direct_send_enabled`，供客户端核对实际进程。服务档位限制工具可见性，但不代替逐封发送授权。
+值必须精确匹配；空值或未知值会使服务拒绝启动。修改后要重新连接或重启 MCP 服务并刷新工具列表。`get_send_capabilities` 会返回当前 `mcp_profile` 及 `review_enabled` / `direct_send_enabled`，供客户端核对实际进程。服务档位限制工具可见性，但不代替逐封发送授权，也不会取消已入队请求。即使在 `read_only` 下，状态/能力调用也可能初始化或更新本地日志数据库。
 
 ## 查询已发送邮件（Sent）
 
@@ -78,7 +78,7 @@ Sent 默认使用 Inbox 同目录的 `Sent` mbox。若实际存放位置不同�
 
 | 客户端 | 当前依据与验证范围 |
 |---|---|
-| 通用 MCP 客户端 | 自动测试使用官方 MCP Python SDK 和两个任意客户端身份，实际完成 stdio 握手、三档工具发现、临时邮件查询、正文及附件读取 |
+| 通用 MCP 客户端 | 自动测试使用官方 MCP Python SDK 和两个任意客户端身份，完成 stdio 握手、默认档位的工具发现、临时邮件查询、正文及附件读取；另有协议用例验证能力档位 |
 | Codex | 已有本机接入使用；同样运行 `server.py`，服务不读取 Codex 配置或规则 |
 | Qoder IDE / CLI | [IDE 官方文档](https://docs.qoder.com/user-guide/chat/model-context-protocol)与 [CLI 官方文档](https://docs.qoder.com/cli/mcp-reference)均支持本地 stdio；符合接入条件，尚未做本项目的客户端端到端实测 |
 | QwenWork 桌面端（千问办公） | [官方连接器文档](https://docs.qwenwork.cn/features/connectors)支持自定义 STDIO 服务；符合接入条件，尚未做本项目的客户端端到端实测 |

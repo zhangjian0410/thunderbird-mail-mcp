@@ -34,6 +34,8 @@ Actions are pinned to full commit SHAs, receive only `contents: read`, and do no
 
 `python -m unittest discover -s tests` does not run `scripts/test_secret_scanner.py`. Run the real-scanner self-tests and sensitive-data scans separately as shown below; CI also executes them in separate steps.
 
+Protocol discovery checks require a nonempty description for every exposed tool in all three profiles. Capability-query tests use a temporary HOME so the default journal cannot read or initialize the user's real send state; reply/forward tests inject temporary journals explicitly.
+
 ## Maintaining bilingual documentation
 
 The English entry points are `README.md`, `docs/reference.md`, `docs/development.md`, and `CHANGELOG.md`. Their Chinese counterparts are `README.zh-CN.md`, `docs/reference.zh-CN.md`, `docs/development.zh-CN.md`, and `CHANGELOG.zh-CN.md`. Keep interfaces, limits, environment versions, commands, and version-history entries synchronized. Verify changelog claims against source revisions and distinguish inherited milestones from separately published versions. README links should lead to documents in the same language, with language switches at the top of each page. Historical research reports currently remain in Chinese.

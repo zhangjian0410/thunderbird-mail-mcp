@@ -1,6 +1,9 @@
 # Thunderbird Native Send Implementation Plan
 
-> Execution: inline in this session, using executing-plans and TDD. Preserve all existing uncommitted query upgrades.
+> Archived plan: the checkboxes, environment notes, and execution instructions below record the original planning state, not current release status. Use the [current reference](../../reference.md) and [changelog](../../../CHANGELOG.md) for implemented behavior.
+> 历史实施计划：下文勾选项、环境和执行说明保留原规划状态，不代表当前版本状态；当前行为以[工具参考](../../reference.zh-CN.md)及[版本变更](../../../CHANGELOG.zh-CN.md)为准。
+
+> Original execution note (archived): inline in the original session, using executing-plans and TDD. Preserve existing uncommitted query upgrades.
 
 **Goal:** Add explicit automatic sending with durable deduplication and separate sent-copy evidence.
 
