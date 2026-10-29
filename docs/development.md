@@ -30,7 +30,7 @@ GitHub Actions 在 push、pull request、手动运行时执行三组任务：
 
 Actions 固定到完整 commit SHA，仅授予 `contents: read`，不保留 checkout 凭据，设有超时和并发取消。测试使用临时 mbox、模拟发送接口与临时产物；不会部署扩展、访问真实邮箱或发送邮件。
 
-`tests/test_mcp_protocol.py` 从[通用配置示例](../examples/mcp-stdio.json)替换测试路径，使用官方 MCP 客户端启动真实 `server.py` 子进程。它以两个任意客户端身份完成初始化、工具发现、查询、正文与附件读取，使用与源码不同且含空格的工作目录，并检查 mbox 原字节不变。此检查证明标准协议可用，不等同于 Qoder/QwenWork GUI 端到端测试，也不验证真实 Thunderbird 发送。
+`tests/test_mcp_protocol.py` 从[通用配置示例](../examples/mcp-stdio.json)替换测试路径，使用官方 MCP 客户端启动真实 `server.py` 子进程。它以两个任意客户端身份完成初始化、16 个工具发现、查询、正文与附件读取，使用与源码不同且含空格的工作目录，并检查 mbox 原字节不变；独立协议用例还核对 reply / forward 的 schema、入队和幂等边界。此检查证明标准协议可用，不等同于 Qoder/QwenWork GUI 端到端测试，也不验证真实 Thunderbird 发送。
 
 ## 敏感信息检查
 

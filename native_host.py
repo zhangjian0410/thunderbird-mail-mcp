@@ -13,12 +13,16 @@ def dispatch(message, journal):
     if not isinstance(message, dict):
         raise ValueError('Message must be an object')
     if message.get('op') == 'poll':
-        journal.heartbeat(message.get('identities'), message.get('features'))
+        journal.heartbeat(message.get('identities'), message.get('features'), message.get('accounts'))
         return journal.claim(features=message.get('features') or []) if message.get('accept') is True else None
     if message.get('op') == 'complete':
         return journal.complete(message.get('request_id'), message.get('claim_token'), message.get('result'))
     if message.get('op') == 'attachment':
         return journal.attachment_chunk(message.get('request_id'), message.get('claim_token'), message.get('index'), message.get('offset'))
+    if message.get('op') == 'diagnostic_poll':
+        return journal.claim_forward_diagnostic() if message.get('accept') is True else None
+    if message.get('op') == 'diagnostic_complete':
+        return journal.complete_forward_diagnostic(message.get('request_id'),message.get('claim_token'),message.get('result'))
     raise ValueError('Unsupported native operation')
 
 

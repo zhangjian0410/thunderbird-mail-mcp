@@ -22,3 +22,6 @@ rollback.json
 deployment-backups/
 *.xpi
 *.db-*
+# Local deployment evidence; never publish private deployment state.
+LOCAL_DEPLOYMENT.md
+DEPLOYED_SOURCE.json

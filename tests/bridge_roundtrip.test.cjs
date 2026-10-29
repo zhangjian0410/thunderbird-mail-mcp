@@ -9,7 +9,7 @@ const vm = require('node:vm');
 const ROOT = path.resolve(__dirname,'..');
 const PYTHON = process.env.MAIL_MCP_TEST_PYTHON || path.join(ROOT, '.venv', 'bin', 'python');
 
-for (const mode of ['send','draft']) test(`background ${mode} through real native host, then status survives reconnection`, async () => {
+for (const mode of ['send','draft','reply','forward']) test(`background ${mode} through real native host, then status survives reconnection`, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(),'native-send-test-'));
   const db = path.join(dir,'private','send.db');
   const processes = [];
@@ -22,6 +22,8 @@ for (const mode of ['send','draft']) test(`background ${mode} through real nativ
   const attachmentBytes=Buffer.alloc(800000,37);
   fs.writeFileSync(attachment,attachmentBytes);
   let current;
+  let composeDetails;
+  const guards = new Set();
   function python(code) {
     const result = spawnSync(PYTHON,['-c',code,db],{cwd:ROOT,encoding:'utf8'});
     assert.equal(result.status,0,result.stderr);
@@ -56,14 +58,33 @@ for (const mode of ['send','draft']) test(`background ${mode} through real nativ
   const records={};
   const browser={
     runtime:{connectNative},
-    accounts:{list:async()=>[{id:'account1',identities:[{id:'id1',email:'sender@example.com'}]}]},
+    accounts:{list:async()=>[{id:'account1',type:'pop3',identities:[{id:'id1',email:'sender@example.com'}]}]},
+    messengerUtilities:{parseMailboxString:async value=>[{email:value}]},
     storage:{local:{get:async()=>({...records}),set:async x=>Object.assign(records,structuredClone(x)),remove:async k=>delete records[k]}},
     compose:{
       addAttachment:async(_id,a)=>{attachments.push(a);return{id:1};},
-      listAttachments:async()=>attachments.map(a=>({name:a.file.name,size:a.file.size})),
+      removeAttachment:async(_id,id)=>{attachments.splice(id,1);},
+      listAttachments:async()=>attachments.map((a,id)=>({id,name:a.file.name,size:a.file.size})),
+      getAttachmentFile:async(_id,id)=>attachments[id].file,
       saveMessage:async()=>{saves++;assert.equal(mode,'draft');assert.deepEqual(Buffer.from(await attachments[0].file.arrayBuffer()),attachmentBytes);return{mode:'draft',messages:[{id:99}]};},
       beginNew:async details=>{assert.equal(details.plainTextBody,'跨进程测试\n第二行');return {id:7};},
+      beginReply:async(id,type,details)=>{
+        assert.equal(id,3);assert.equal(type,'replyToAll');
+        composeDetails={...details,type:'reply',relatedMessageId:3,from:'sender@example.com',to:['one@example.com'],cc:[],bcc:[]};
+        return {id:7};
+      },
+      beginForward:async(id,type,details)=>{
+        assert.equal(id,3);assert.equal(type,'forwardAsAttachment');
+        attachments.push({file:new File(['synthetic raw message'],'original.eml',{type:'message/rfc822'})});
+        composeDetails={...details,type:'forward',relatedMessageId:3,from:'sender@example.com',to:[],cc:[],bcc:[],
+          plainTextBody:'-------- Forwarded Message --------\nOriginal text'};
+        return {id:7};
+      },
+      getComposeDetails:async()=>({...composeDetails}),
+      setComposeDetails:async(_id,details)=>Object.assign(composeDetails,details),
+      onBeforeSend:{addListener:fn=>guards.add(fn),removeListener:fn=>guards.delete(fn)},
       sendMessage:async (tabId,options)=>{
+        for (const guard of guards) assert.notEqual((await guard({id:tabId},composeDetails))?.cancel,true);
         attempts++;
         assert.equal(tabId,7);
         assert.deepEqual(JSON.parse(JSON.stringify(options)),{mode:'sendNow'});
@@ -72,7 +93,11 @@ for (const mode of ['send','draft']) test(`background ${mode} through real nativ
     },
     tabs:{remove:async()=>{}},
     messages:{
-      get:async()=>({id:42,headerMessageId:'roundtrip@example.com',folder:{id:'account1://Sent',path:'/Sent',accountId:'account1'}})
+      query:async()=>({messages:[{id:3,headerMessageId:'original@example.test',folder:{id:'account1://Inbox',path:'/Inbox',accountId:'account1'}}]}),
+      getFull:async()=>({headers:{'message-id':['<original@example.test>']},body:'synthetic original'}),
+      getRaw:async()=>new File(['synthetic raw message'],'original.eml',{type:'message/rfc822'}),
+      get:async id=>id === 3 ? {id:3,headerMessageId:'original@example.test',folder:{id:'account1://Inbox',path:'/Inbox',accountId:'account1'}} :
+        {id:42,headerMessageId:'roundtrip@example.com',folder:{id:'account1://Sent',path:'/Sent',accountId:'account1'}}
     }
   };
   const context=vm.createContext({browser,File,atob,crypto:require('node:crypto').webcrypto,
@@ -93,17 +118,19 @@ for (const mode of ['send','draft']) test(`background ${mode} through real nativ
     vm.runInContext(fs.readFileSync(path.join(ROOT,'extension/background.js'),'utf8'),context);
     await until('print(json.dumps(j.capabilities()))',x=>x.ready);
     const opts=mode==='draft'?`,action="draft",attachments=[dict(path=${JSON.stringify(attachment)},sha256="${require('node:crypto').createHash('sha256').update(attachmentBytes).digest('hex')}")]`:'';
-    const enqueue='print(json.dumps(j.enqueue("roundtrip-1",dict(to=["one@example.com"],from_email="sender@example.com",subject="test",body="跨进程测试\\n第二行")'+opts+')))';
+    const reply=mode==='reply'?',reply=dict(message_id="original@example.test",account_id="account1",identity_id="id1",mode="reply_all")':'';
+    const forward=mode==='forward'?',forward=dict(message_id="original@example.test",account_id="account1",identity_id="id1",mode="forward_attachment")':'';
+    const enqueue='print(json.dumps(j.enqueue("roundtrip-1",dict(to=["one@example.com"],from_email="sender@example.com",subject="test",body="跨进程测试\\n第二行"'+reply+forward+')'+opts+')))';
     assert.equal(python(prefix+enqueue).status,'pending');
     const wanted=mode==='draft'?'drafted':'sent';
     const result=await until('print(json.dumps(j.status("roundtrip-1")))',x=>x.status===wanted);
-    if(mode==='send') assert.equal(result.copy_status,'verified');
+    if(mode!=='draft') assert.equal(result.copy_status,'verified');
     else assert.equal(result.sent,false);
     current.kill();
     await new Promise(resolve=>setTimeout(resolve,150));
     assert.equal(python(prefix+enqueue).status,wanted);
     await until('print(json.dumps(j.capabilities()))',x=>x.ready);
-    assert.equal(attempts,mode==='send'?1:0);
+    assert.equal(attempts,mode==='draft'?0:1);
     assert.equal(saves,mode==='draft'?1:0);
   } finally {
     intervals.forEach(clearInterval);timers.forEach(clearTimeout);

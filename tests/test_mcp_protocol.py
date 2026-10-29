@@ -20,6 +20,96 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_forward_tool_stdio_schema_validation_queue_and_idempotency(self):
+        with TemporaryDirectory(prefix='forward protocol ') as directory:
+            temporary = Path(directory)
+            journal = temporary / 'private' / 'send.db'
+            bootstrap = (
+                'import sys,runpy; '
+                f'sys.path.insert(0,{str(ROOT)!r}); import mail_sender; '
+                f'mail_sender.JOURNAL=mail_sender.SendJournal({str(journal)!r}); '
+                'mail_sender.JOURNAL.heartbeat('
+                '[{"id":"id1","email":"sender@example.com","account_id":"account1"}],'
+                '["forward_v1"],[{"id":"account1","type":"pop3"},{"id":"source1","type":"none"}]); '
+                f'runpy.run_path({str(ROOT/"server.py")!r},run_name="__main__")'
+            )
+            parameters = StdioServerParameters(command=sys.executable, args=['-B', '-c', bootstrap],
+                env={'THUNDERBIRD_INBOX_PATH': str(temporary/'Inbox'),
+                     'THUNDERBIRD_SENT_PATH': str(temporary/'Sent')}, cwd=temporary)
+            args = dict(to=['one@example.com'], cc=[], bcc=[], subject='Fwd: approved', body='Approved commentary',
+                        from_email='sender@example.com', idempotency_key='stdio-forward',
+                        source_message_id='<original@example.test>', source_account_id='source1', identity_id='id1')
+            with anyio.fail_after(30), (temporary/'stderr.log').open('w') as diagnostics:
+                async with stdio_client(parameters, errlog=diagnostics) as (reader, writer):
+                    async with ClientSession(reader, writer) as session:
+                        await session.initialize()
+                        tool = next(t for t in (await session.list_tools()).tools if t.name == 'forward_email')
+                        self.assertTrue({'source_message_id', 'source_account_id', 'identity_id'}
+                                        <= set(tool.inputSchema['required']))
+                        result = await session.call_tool('forward_email', args)
+                        self.assertFalse(result.isError, result.content)
+                        duplicate = await session.call_tool('forward_email', args)
+                        self.assertFalse(duplicate.isError)
+                        for change in ({'forward_mode': 'forward_inline'},
+                                       {'source_message_id': 'locator-1'},
+                                       {'source_account_id': 'missing'}, {'identity_id': 'wrong'},
+                                       {'subject': 'changed'}):
+                            self.assertTrue((await session.call_tool('forward_email', {**args, **change})).isError,
+                                            change)
+            from mail_sender import SendJournal
+            job = SendJournal(journal).claim(features=['forward_v1'])
+            self.assertEqual(job['payload']['forward'], {
+                'message_id': 'original@example.test', 'account_id': 'source1',
+                'identity_id': 'id1', 'mode': 'forward_attachment'})
+
+    async def test_reply_tool_stdio_schema_validation_queue_and_idempotency(self):
+        # A real server subprocess with its journal replaced before importing server.
+        # No production queue or Thunderbird process is contacted.
+        with TemporaryDirectory(prefix='reply protocol ') as directory:
+            temporary = Path(directory)
+            journal = temporary/'private'/'send.db'
+            bootstrap = (
+                'import sys,runpy; from pathlib import Path; '
+                f'sys.path.insert(0,{str(ROOT)!r}); import mail_sender; '
+                f'mail_sender.JOURNAL=mail_sender.SendJournal({str(journal)!r}); '
+                'mail_sender.JOURNAL.heartbeat('
+                '[{"id":"id1","email":"sender@example.com","account_id":"account1"}],'
+                '["reply_v1"],[{"id":"account1","type":"pop3"}]); '
+                f'runpy.run_path({str(ROOT/"server.py")!r},run_name="__main__")'
+            )
+            parameters = StdioServerParameters(command=sys.executable,args=['-B','-c',bootstrap],
+                env={'THUNDERBIRD_INBOX_PATH':str(temporary/'Inbox'),'THUNDERBIRD_SENT_PATH':str(temporary/'Sent')},cwd=temporary)
+            args = dict(to=['one@example.com'],cc=[],bcc=[],subject='Re: approved',body='Approved text',
+                        from_email='sender@example.com',idempotency_key='stdio-reply',
+                        source_message_id='<original@example.test>',source_account_id='account1',identity_id='id1')
+            with anyio.fail_after(30), (temporary/'stderr.log').open('w') as diagnostics:
+                async with stdio_client(parameters,errlog=diagnostics) as (reader,writer):
+                    async with ClientSession(reader,writer) as session:
+                        await session.initialize()
+                        tools = (await session.list_tools()).tools
+                        tool = next(t for t in tools if t.name == 'reply_email')
+                        self.assertTrue({'source_message_id','source_account_id','identity_id'} <= set(tool.inputSchema['required']))
+                        missing = dict(args);missing.pop('source_message_id')
+                        self.assertTrue((await session.call_tool('reply_email',missing)).isError)
+                        for change in ({'reply_mode':'new'},{'source_message_id':'locator-1'},
+                                       {'source_account_id':'missing'},{'identity_id':'wrong'},
+                                       {'bcc':['bad\n@example.com']}):
+                            self.assertTrue((await session.call_tool('reply_email',{**args,**change})).isError,change)
+                        result = await session.call_tool('reply_email',args)
+                        self.assertFalse(result.isError,result.content)
+                        self.assertEqual((result.structuredContent or json.loads(result.content[0].text))['status'],'pending')
+                        duplicate = await session.call_tool('reply_email',args)
+                        self.assertFalse(duplicate.isError)
+                        for change in ({'source_message_id':'other@example.test'},{'reply_mode':'reply_sender'},
+                                       {'to':['other@example.com']}):
+                            self.assertTrue((await session.call_tool('reply_email',{**args,**change})).isError)
+            from mail_sender import SendJournal
+            store = SendJournal(journal)
+            job = store.claim(features=['reply_v1'])
+            self.assertEqual(job['payload']['reply']['message_id'],'original@example.test')
+            self.assertEqual(job['payload']['reply']['mode'],'reply_all')
+            self.assertIsNone(store.claim(features=['reply_v1']))
+
     async def test_generic_stdio_clients_discover_and_read_without_a_harness(self):
         example = json.loads((ROOT / 'examples/mcp-stdio.json').read_text())
         config = example['mcpServers']['thunderbird_mail']
@@ -39,7 +129,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
             }
             parameters = StdioServerParameters(
                 command=replacements[config['command']],
-                args=[replacements[arg] for arg in config['args']],
+                args=['-B', *[replacements[arg] for arg in config['args']]],
                 env={name: replacements[value] for name, value in config['env'].items()},
                 cwd=temporary,
             )
@@ -52,9 +142,9 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
                                 initialized = await session.initialize()
                                 self.assertEqual(initialized.serverInfo.name, 'Thunderbird Mail')
                                 tools = (await session.list_tools()).tools
-                                self.assertEqual(len(tools), 12)
+                                self.assertEqual(len(tools), 16)
                                 self.assertTrue({'query_email', 'read_emails', 'read_attachment',
-                                                 'create_draft', 'send_email'} <= {tool.name for tool in tools})
+                                                 'create_draft', 'send_email', 'reply_email', 'forward_email'} <= {tool.name for tool in tools})
 
                                 async def call(tool, arguments=None):
                                     result = await session.call_tool(tool, arguments or {})

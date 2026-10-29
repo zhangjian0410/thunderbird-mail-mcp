@@ -19,6 +19,9 @@ FILES += ['tests/test_attachments.py', 'tests/attachments.test.cjs']
 FILES += ['mail_reader.py', 'tests/test_mail_reader_deleted.py']
 FILES += ['mail_store.py']
 FILES += ['tests/test_deployment.py']
+FILES += ['tests/test_reply.py', 'tests/reply.test.cjs', 'tests/test_mcp_protocol.py',
+          'docs/reference.md', 'CHANGELOG.md', 'uv.lock']
+FILES += ['tests/test_forward.py', 'tests/forward.test.cjs']
 
 
 def prepare(target, output, native_dir):

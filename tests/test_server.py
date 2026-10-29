@@ -1,11 +1,28 @@
 import unittest
 from unittest.mock import patch
+import json
+from pathlib import Path
+import re
 
 from mail_composer import ComposeInputError
 from server import compose_email, mcp
 
 
 class ServerTests(unittest.TestCase):
+    def test_documented_version_and_tool_count_match_runtime(self):
+        root = Path(__file__).resolve().parents[1]
+        project = (root / 'pyproject.toml').read_text()
+        version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE).group(1)
+        tool_count = len(mcp._tool_manager.list_tools())
+        manifest = json.loads((root / 'extension/manifest.json').read_text())
+        self.assertEqual(manifest['version'], version)
+        self.assertIn(
+            f'当前版本 **{version}**，提供 **{tool_count} 个工具**',
+            (root / 'README.md').read_text())
+        self.assertIn(
+            f'## {tool_count} 个 MCP 工具',
+            (root / 'docs/reference.md').read_text())
+
     def test_html_format_is_exposed_and_reaches_both_queue_actions(self):
         import server, mail_sender
         from pathlib import Path
@@ -30,7 +47,8 @@ class ServerTests(unittest.TestCase):
             tool_names,
             {"search_email", "read_email", "list_recent_email", "compose_email",
              "list_mail_folders", "query_email", "read_emails", "read_attachment",
-             "send_email", "get_send_status", "get_send_capabilities", "create_draft"},
+             "send_email", "reply_email", "forward_email", "get_send_status", "get_send_capabilities", "create_draft",
+             "diagnose_forward_preparation", "get_forward_diagnostic_status"},
         )
 
     def test_new_tools_read_real_fixture_and_attachment(self):

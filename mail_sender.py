@@ -17,6 +17,48 @@ import time
 STATE_PATH = Path.home() / 'Library/Application Support/ThunderbirdMailMCP/send.sqlite3'
 KEY = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z')
 ADDRESS = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}\Z")
+MESSAGE_ID = re.compile(r'[^\s<>@\x00-\x1f\x7f]+@[^\s<>@\x00-\x1f\x7f]+\Z')
+FAILURE_CODES = frozenset({
+    'forward_source_lookup', 'forward_raw_read', 'forward_native_compose',
+    'forward_context', 'forward_body', 'forward_native_attachment',
+    'forward_raw_mismatch', 'forward_caller_attachment', 'forward_final_guard',
+})
+DIAGNOSTIC_STAGES = FAILURE_CODES | {'close_not_confirmed', 'interrupted',
+    'reread_list','reread_get_file','reread_array_buffer','reread_hash','reread_compare'}
+MIME_CLASSES = frozenset({'message_rfc822','application_octet_stream','text','other'})
+MAX_DIAGNOSTIC_ITEMS = 16
+MAX_DIAGNOSTIC_COUNT = 10000
+MAX_DIAGNOSTIC_BYTE_SIZE = (1 << 63) - 1
+MAX_DIAGNOSTIC_RESULT_BYTES = 16 * 1024
+
+
+def validate_source_context(context, kind):
+    if not isinstance(context, dict) or set(context) != {'message_id', 'account_id', 'identity_id', 'mode'}:
+        raise ValueError(f'{kind.title()} requires message_id, account_id, identity_id and mode')
+    result = dict(context)
+    message_id = result['message_id']
+    if isinstance(message_id, str) and message_id.startswith('<') and message_id.endswith('>'):
+        message_id = message_id[1:-1]
+    if not isinstance(message_id, str) or len(message_id) > 998 or not MESSAGE_ID.fullmatch(message_id):
+        raise ValueError(f'{kind.title()} requires one RFC Message-ID, not a locator or Thunderbird numeric ID')
+    result['message_id'] = message_id
+    for field in ('account_id', 'identity_id'):
+        value = result[field]
+        if not isinstance(value, str) or not value or len(value) > 256 or any(ord(c) < 33 or ord(c) == 127 for c in value):
+            raise ValueError(f'{kind.title()} account_id and identity_id must be explicit capability IDs')
+    modes = ('reply_all', 'reply_sender') if kind == 'reply' else ('forward_attachment',)
+    if result['mode'] not in modes:
+        allowed = ' or '.join(modes)
+        raise ValueError(f'{kind}_mode must be {allowed}')
+    return result
+
+
+def validate_reply(context):
+    return validate_source_context(context, 'reply')
+
+
+def validate_forward(context):
+    return validate_source_context(context, 'forward')
 
 
 def validate_payload(payload):
@@ -45,6 +87,12 @@ def validate_payload(payload):
     # Omit the default so existing idempotency digests remain valid.
     if body_format == 'html':
         result['body_format'] = 'html'
+    if 'reply' in payload:
+        result['reply'] = validate_reply(payload['reply'])
+    if 'forward' in payload:
+        if 'reply' in payload:
+            raise ValueError('A message cannot be both a reply and a forward')
+        result['forward'] = validate_forward(payload['forward'])
     return result
 
 
@@ -111,10 +159,14 @@ class SendJournal:
             conn.execute('PRAGMA synchronous=FULL')
             conn.execute('CREATE TABLE IF NOT EXISTS bridge (id INTEGER PRIMARY KEY, seen REAL, identities TEXT)')
             conn.execute('CREATE TABLE IF NOT EXISTS bridge_features (id INTEGER PRIMARY KEY, features TEXT)')
+            conn.execute('CREATE TABLE IF NOT EXISTS bridge_accounts (id INTEGER PRIMARY KEY, accounts TEXT)')
             conn.execute('CREATE TABLE IF NOT EXISTS attachments (request_id TEXT, ordinal INTEGER, data BLOB, PRIMARY KEY(request_id, ordinal))')
             conn.execute('CREATE TABLE IF NOT EXISTS request_meta (id TEXT PRIMARY KEY, action TEXT, attachments TEXT)')
             conn.execute('''CREATE TABLE IF NOT EXISTS sends (
                 id TEXT PRIMARY KEY, digest TEXT NOT NULL, payload TEXT, created REAL,
+                claimed REAL, token TEXT, state TEXT NOT NULL, result TEXT)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS forward_diagnostics (
+                id TEXT PRIMARY KEY, payload TEXT NOT NULL, created REAL,
                 claimed REAL, token TEXT, state TEXT NOT NULL, result TEXT)''')
             conn.commit()
             conn.execute('BEGIN IMMEDIATE')
@@ -131,7 +183,7 @@ class SendJournal:
         if not isinstance(key, str) or not KEY.fullmatch(key):
             raise ValueError('idempotency_key must be 1-128 ASCII letters, numbers, . _ : or -')
 
-    def heartbeat(self, identities, features=None):
+    def heartbeat(self, identities, features=None, accounts=None):
         if features is None:
             features = []
         if not isinstance(features, list) or len(features) > 20 or not all(isinstance(f, str) and len(f) <= 64 for f in features):
@@ -142,28 +194,135 @@ class SendJournal:
         for identity in identities:
             if not isinstance(identity, dict) or not isinstance(identity.get('id'), str) or not isinstance(identity.get('email'), str):
                 raise ValueError('Invalid identity')
-            clean.append({'id': identity['id'], 'email': identity['email']})
+            entry = {'id': identity['id'], 'email': identity['email']}
+            if 'account_id' in identity:
+                if not isinstance(identity['account_id'], str):
+                    raise ValueError('Invalid identity account')
+                entry['account_id'] = identity['account_id']
+            clean.append(entry)
+        if accounts is None:
+            accounts = []
+        if not isinstance(accounts, list) or len(accounts) > 100 or any(
+                not isinstance(a, dict) or not isinstance(a.get('id'), str)
+                or not isinstance(a.get('type'), str) for a in accounts):
+            raise ValueError('Invalid accounts')
+        clean_accounts = []
+        for account in accounts:
+            entry = {'id': account['id'], 'type': account['type']}
+            if 'name' in account:
+                if not isinstance(account['name'], str) or len(account['name']) > 1000:
+                    raise ValueError('Invalid account name')
+                entry['name'] = account['name']
+            clean_accounts.append(entry)
         with self.db() as db:
             db.execute('INSERT OR REPLACE INTO bridge VALUES (1, ?, ?)', (self.clock(), json.dumps(clean)))
             db.execute('INSERT OR REPLACE INTO bridge_features VALUES (1, ?)', (json.dumps(features),))
+            db.execute('INSERT OR REPLACE INTO bridge_accounts VALUES (1, ?)', (json.dumps(clean_accounts),))
 
     def capabilities(self):
         with self.db() as db:
             row = db.execute('SELECT * FROM bridge WHERE id=1').fetchone()
             features = db.execute('SELECT features FROM bridge_features WHERE id=1').fetchone()
+            accounts = db.execute('SELECT accounts FROM bridge_accounts WHERE id=1').fetchone()
         age = self.clock() - row['seen'] if row else None
         ready = age is not None and 0 <= age <= 15
         return {'ready': ready, 'identities': json.loads(row['identities']) if ready else [],
                 'features': json.loads(features[0]) if ready and features else [],
+                'accounts': json.loads(accounts[0]) if ready and accounts else [],
                 'attachment_limits': {'max_count':10, 'total_bytes':20*1024*1024},
                 'bridge_age_seconds': age, 'requires': 'Thunderbird 153+ with Native Send extension running',
                 'copy_policy': 'Use account FCC; report copy verification separately'}
+
+    def enqueue_forward_diagnostic(self,key,context,from_email,body_format='plain'):
+        self.validate_key(key)
+        forward=validate_forward(context)
+        if body_format not in ('plain','html') or not ADDRESS.fullmatch(from_email or ''):
+            raise ValueError('Invalid diagnostic input')
+        with self.db() as db:
+            bridge=db.execute('SELECT * FROM bridge WHERE id=1').fetchone()
+            if not bridge or not 0<=self.clock()-bridge['seen']<=15: raise ValueError('Thunderbird bridge offline')
+            feature_row=db.execute('SELECT features FROM bridge_features WHERE id=1').fetchone()
+            features=json.loads(feature_row[0]) if feature_row else []
+            if 'forward_diagnostic_v1' not in features:
+                raise ValueError('Running Thunderbird extension does not support this request; update it first')
+            identities=json.loads(bridge['identities']); matches=[i for i in identities if i['email'].lower()==from_email.lower()]
+            account_row=db.execute('SELECT accounts FROM bridge_accounts WHERE id=1').fetchone()
+            accounts=json.loads(account_row[0]) if account_row else []
+            if (len(matches)!=1 or matches[0]['id']!=forward['identity_id']
+                    or not matches[0].get('account_id')
+                    or sum(account['id']==forward['account_id'] for account in accounts)!=1):
+                raise ValueError('Message identity or source account does not match current capabilities')
+            payload={'forward':forward,'from_email':from_email,'identity_id':forward['identity_id'],'body_format':body_format,
+                     'identity_account_id':matches[0].get('account_id')}
+            digest=self._digest(payload)
+            old=db.execute('SELECT * FROM forward_diagnostics WHERE id=?',(key,)).fetchone()
+            if old:
+                if self._digest(json.loads(old['payload']))!=digest: raise ValueError('diagnostic_key is already bound')
+                return {'diagnostic_id':key,'status':old['state'],**(json.loads(old['result']) if old['result'] else {})}
+            db.execute('INSERT INTO forward_diagnostics VALUES (?,?,?,?,?,?,?)',(key,json.dumps(payload),self.clock(),None,None,'pending',None))
+            return {'diagnostic_id':key,'status':'pending'}
+
+    def claim_forward_diagnostic(self):
+        with self.db() as db:
+            interrupted=json.dumps({'status':'failed','failure_stage':'interrupted','close_confirmed':False})
+            db.execute("UPDATE forward_diagnostics SET state='complete',result=? WHERE state='running' AND claimed<?",
+                       (interrupted,self.clock()-15))
+            row=db.execute("SELECT * FROM forward_diagnostics WHERE state='pending' ORDER BY created,id LIMIT 1").fetchone()
+            if not row:return None
+            token=secrets.token_hex(32);db.execute("UPDATE forward_diagnostics SET state='running',claimed=?,token=? WHERE id=?",(self.clock(),token,row['id']))
+            return {'request_id':row['id'],'claim_token':token,'payload':json.loads(row['payload'])}
+
+    def complete_forward_diagnostic(self,key,token,result):
+        self.validate_key(key)
+        allowed={'status','failure_stage','source_size','source_sha256','inherited','reread','close_confirmed'}
+        if not isinstance(result,dict) or result.get('status') not in ('prepared','failed') or set(result)-allowed:
+            raise ValueError('Invalid diagnostic result')
+        if result.get('failure_stage') is not None and result['failure_stage'] not in DIAGNOSTIC_STAGES:
+            raise ValueError('Invalid diagnostic stage')
+        if not isinstance(result.get('close_confirmed'),bool): raise ValueError('Invalid diagnostic close result')
+        for field in ('source_size',):
+            if field in result and (type(result[field]) is not int or not 0<=result[field]<=MAX_DIAGNOSTIC_BYTE_SIZE): raise ValueError('Invalid diagnostic size')
+        for field in ('source_sha256',):
+            if field in result and not re.fullmatch('[0-9a-f]{64}',result[field] or ''): raise ValueError('Invalid diagnostic hash')
+        for section in ('inherited','reread'):
+            if section not in result: continue
+            value=result[section]
+            section_allowed={'count','items','truncated'}|({'size','sha256','equal'} if section=='reread' else set())
+            if not isinstance(value,dict) or set(value)-section_allowed: raise ValueError('Invalid diagnostic attachment result')
+            count=value.get('count');items=value.get('items');truncated=value.get('truncated',False)
+            if (type(count) is not int or not 0<=count<=MAX_DIAGNOSTIC_COUNT
+                    or not isinstance(items,list) or len(items)>MAX_DIAGNOSTIC_ITEMS
+                    or type(truncated) is not bool or truncated!=(count>MAX_DIAGNOSTIC_ITEMS)
+                    or len(items)!=min(count,MAX_DIAGNOSTIC_ITEMS)):
+                raise ValueError('Invalid diagnostic attachment result')
+            if section=='reread' and ((value.get('size') is not None and (type(value['size']) is not int or not 0<=value['size']<=MAX_DIAGNOSTIC_BYTE_SIZE)) or
+                    (value.get('sha256') is not None and not re.fullmatch('[0-9a-f]{64}',value['sha256'])) or
+                    ('equal' in value and type(value['equal']) is not bool)):
+                raise ValueError('Invalid diagnostic reread result')
+            for item in items:
+                if not isinstance(item,dict) or not {'extension','type_class'}<=set(item)<= {'extension','type_class','metadata_size'} or (item['extension'] is not None and not re.fullmatch(r'\.[a-z0-9]{1,10}',item['extension'])) or item['type_class'] not in MIME_CLASSES or ('metadata_size' in item and (type(item['metadata_size']) is not int or not 0<=item['metadata_size']<=MAX_DIAGNOSTIC_BYTE_SIZE)):
+                    raise ValueError('Invalid diagnostic attachment class')
+        data=json.dumps(result)
+        if len(data.encode())>MAX_DIAGNOSTIC_RESULT_BYTES:
+            raise ValueError('Diagnostic result too large')
+        with self.db() as db:
+            row=db.execute('SELECT * FROM forward_diagnostics WHERE id=?',(key,)).fetchone()
+            if not isinstance(token,str) or not token or not row or row['state']!='running' or row['result'] is not None or not secrets.compare_digest(row['token'] or '',token):raise ValueError('Invalid diagnostic token')
+            db.execute("UPDATE forward_diagnostics SET state=?,result=? WHERE id=?",('complete',data,key))
+        return self.forward_diagnostic_status(key)
+
+    def forward_diagnostic_status(self,key):
+        self.validate_key(key)
+        with self.db() as db: row=db.execute('SELECT * FROM forward_diagnostics WHERE id=?',(key,)).fetchone()
+        return {'diagnostic_id':key,'status':'not_found'} if not row else {'diagnostic_id':key,'status':row['state'],**(json.loads(row['result']) if row['result'] else {})}
 
     def enqueue(self, key, payload, attachments=None, action='send'):
         self.validate_key(key)
         if action not in ('send', 'draft'):
             raise ValueError('Unsupported action')
         payload = validate_payload(payload)
+        if (payload.get('reply') or payload.get('forward')) and action != 'send':
+            raise ValueError('Reply and forward requests support immediate send only')
         # A retry refers to the immutable existing request, even if its source
         # files have since moved, changed or disappeared. Keep file I/O outside
         # the write transaction for new requests.
@@ -184,12 +343,20 @@ class SendJournal:
                 raise ValueError('Thunderbird send bridge offline; no message queued')
             feature_row = db.execute('SELECT features FROM bridge_features WHERE id=1').fetchone()
             features = json.loads(feature_row[0]) if feature_row else []
-            if (metadata and 'attachments_v1' not in features) or (action == 'draft' and 'draft_v1' not in features) or (queued.get('body_format') == 'html' and 'html_v1' not in features):
+            if (metadata and 'attachments_v1' not in features) or (action == 'draft' and 'draft_v1' not in features) or (queued.get('body_format') == 'html' and 'html_v1' not in features) or (queued.get('reply') and 'reply_v1' not in features) or (queued.get('forward') and 'forward_v1' not in features):
                 raise ValueError('Running Thunderbird extension does not support this request; update it first')
             matches = [i for i in json.loads(bridge['identities']) if i['email'].lower() == queued['from_email'].lower()]
             if len(matches) != 1:
                 raise ValueError('from_email must match exactly one available Thunderbird identity')
             queued['identity_id'] = matches[0]['id']
+            source = queued.get('reply') or queued.get('forward')
+            if source:
+                account_row = db.execute('SELECT accounts FROM bridge_accounts WHERE id=1').fetchone()
+                accounts = json.loads(account_row[0]) if account_row else []
+                if (source['identity_id'] != matches[0]['id'] or not matches[0].get('account_id')
+                        or sum(a['id'] == source['account_id'] for a in accounts) != 1):
+                    raise ValueError('Message identity or source account does not match current capabilities')
+                queued['identity_account_id'] = matches[0]['account_id']
             db.execute('INSERT INTO sends (id,digest,payload,created,state) VALUES (?,?,?,?,?)',
                        (key, digest, json.dumps(queued, ensure_ascii=False), self.clock(), 'pending'))
             db.execute('INSERT INTO request_meta VALUES (?,?,?)', (key, action, json.dumps(metadata, ensure_ascii=False)))
@@ -252,7 +419,7 @@ class SendJournal:
             feature_row = db.execute('SELECT features FROM bridge_features WHERE id=1').fetchone()
             if features is None:
                 features = json.loads(feature_row[0]) if feature_row else []
-            if (payload.get('attachments') and 'attachments_v1' not in features) or (payload.get('action') == 'draft' and 'draft_v1' not in features) or (payload.get('body_format') == 'html' and 'html_v1' not in features):
+            if (payload.get('attachments') and 'attachments_v1' not in features) or (payload.get('action') == 'draft' and 'draft_v1' not in features) or (payload.get('body_format') == 'html' and 'html_v1' not in features) or (payload.get('reply') and 'reply_v1' not in features) or (payload.get('forward') and 'forward_v1' not in features):
                 return None
             token = secrets.token_hex(32)
             db.execute("UPDATE sends SET state='sending', claimed=?, token=? WHERE id=?", (self.clock(), token, row['id']))
@@ -266,7 +433,10 @@ class SendJournal:
             raise ValueError('A sent outcome requires a Message-ID and copy_status')
         if result['status'] == 'drafted' and not result.get('drafts'):
             raise ValueError('A draft outcome requires saved draft IDs')
-        clean = {k: result[k] for k in ('status', 'message_id', 'copy_status', 'copies', 'drafts', 'error') if k in result}
+        failure_code = result.get('failure_code')
+        if failure_code is not None and (result['status'] != 'failed' or failure_code not in FAILURE_CODES):
+            raise ValueError('Invalid failure code')
+        clean = {k: result[k] for k in ('status', 'message_id', 'copy_status', 'copies', 'drafts', 'error', 'failure_code') if k in result}
         serialized = json.dumps(clean, ensure_ascii=False)
         if len(serialized.encode()) > 100000:
             raise ValueError('Outcome too large')

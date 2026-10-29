@@ -2,7 +2,7 @@
 
 [返回工程介绍](../README.md)
 
-## 12 个 MCP 工具
+## 16 个 MCP 工具
 
 | 工具 | 用途与主要参数 |
 |---|---|
@@ -16,6 +16,10 @@
 | `compose_email(to, subject, body, cc=None, bcc=None)` | 打开 Thunderbird 原生写信窗口，不自动发送 |
 | `create_draft(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | 通过扩展保存原生草稿，绝不调用发送；轮询状态直到 `drafted` |
 | `send_email(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | 通过扩展实际发送用户授权的邮件；返回入队结果后须查询状态 |
+| `reply_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, reply_mode="reply_all", cc=None, bcc=None, attachments=None, body_format="plain")` | 用原生回复上下文发送；支持 `reply_all` / `reply_sender`；收件范围须与 Thunderbird 原生结果完全一致，需要 `reply_v1` |
+| `forward_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, forward_mode="forward_attachment", cc=None, bcc=None, attachments=None, body_format="plain")` | 用原生附件转发上下文发送；已授权说明是精确正文，原邮件保留为 Thunderbird 原生 `.eml`；需要 `forward_v1` |
+| `diagnose_forward_preparation(source_message_id, source_account_id, from_email, identity_id, diagnostic_key, body_format="plain")` | 独立 prepare-only 诊断；真实创建并关闭原生转发 tab，但绝不发送或保存草稿，只记录有界的非敏感大小、哈希与分类结果；附件分类最多保留 16 项，并以 `count` / `truncated` 表示完整数量；需要 `forward_diagnostic_v1` |
+| `get_forward_diagnostic_status(diagnostic_key)` | 查询独立诊断队列；不读取或改变发送队列 |
 | `get_send_status(idempotency_key)` | 查询同一请求的持久状态、Message-ID、发送副本验证结果 |
 | `get_send_capabilities()` | 查询扩展心跳、可用发件身份和特性；不发送邮件 |
 
@@ -29,17 +33,42 @@
 
 Sent 查询链只读取本地 mbox，不触发 `send_email`，不移动或标记邮件。Sent 是已保存的发送副本，不是待发 Outbox；Outbox、空范围、重复或未知文件夹名称均不接受。`server_sync_status` 仍为 unknown，副本存在不能证明对方收到邮件。
 
-## 三种写信接口的执行路径
+## 写信、回复、转发与诊断接口的执行路径
 
 | 接口 | 服务与 Thunderbird 执行路径 | 最终行为 |
 |---|---|---|
 | `compose_email` | `MailComposer` → Thunderbird CLI `-compose` | 打开写信窗口；接口不自动保存或发送 |
 | `create_draft` | 入队时指定 `action="draft"` → 扩展 `compose.saveMessage(..., {mode: "draft"})` | 只保存草稿，状态为 `drafted` |
 | `send_email` | 入队使用默认 `action="send"` → 扩展 `compose.sendMessage(..., {mode: "sendNow"})` | 直接发信，成功后状态为 `sent`；不会先调用保存草稿接口 |
+| `reply_email` | 入队保留不可变 `reply` → 账户内唯一定位 RFC Message-ID → `compose.beginReply(..., "replyToAll" / "replyToSender")` → `sendMessage(..., {mode: "sendNow"})` | 发送真实回复；任何定位、身份或收件范围失配都停止，不回退到新邮件 |
+| `forward_email` | 入队保留不可变 `forward` → 账户内唯一定位 RFC Message-ID → 冻结原始邮件字节 → `compose.beginForward(..., "forwardAsAttachment")` → 设置精确说明正文 → `sendMessage(..., {mode: "sendNow"})` | 发送真实附件式转发；原邮件作为 `.eml` 完整保留，任何源或最终内容变化都停止，不回退到新邮件 |
+| `diagnose_forward_preparation` | 独立诊断队列 → 原生 `forwardAsAttachment` → 读取来源 raw → 临时替换并回读 `.eml` → 关闭精确 tab | 只验证准备链；代码路径不调用发送或保存草稿，结果与发送队列隔离 |
 
 `create_draft` 与 `send_email` 不是一条必须顺序执行的调用链。保存草稿是独立动作；直接发送不要求草稿 ID，也不要求用户再在 Thunderbird 窗口中点击发送。扩展离线、发件身份不匹配或缺少所需特性时，请求会拒绝入队；Thunderbird 的发送过程仍可能失败或返回未知结果。
 
 服务端检查参数、扩展在线状态、身份、特性、附件完整性和幂等键，不检查人工审批记录或确认令牌。调用方负责取得用户授权及执行客户端权限策略；工具描述中的授权要求不是服务端的人工审批机制。
+
+## 原生回复边界
+
+`source_message_id` 是原邮件 RFC Message-ID，可带一对尖括号，不能传本地查询 locator 或 Thunderbird 临时数字 ID。先读原邮件并确认用户授权，再从 `get_send_capabilities()` 返回的 `accounts[{id,type,name}]` 按实际账户名称/类型选择原邮件账户，使用 `identities[{id,email,account_id}]` 中与 `from_email` 唯一匹配的 `id`。原邮件可能位于 Local Folders，其账户可以与发件身份账户不同。账户不明确时先核实，不能猜测。
+
+扩展只在指定账户内本地查询 Message-ID，遍历所有结果页，要求唯一且非外部文件邮件；原邮件缺失、重复、账户或身份变化、正文读取失败都不发送。使用原生 `beginReply` 后回读 `type="reply"` 和 `relatedMessageId`；先将 Thunderbird 自动计算的 To/Cc/Bcc 与显式授权范围逐字段比较（忽略地址大小写与字段内顺序），不同就关闭并失败。当前接口不支持在回复时增删或移动收件人字段，原生附带的 Bcc 也必须得到显式授权。
+
+正文参数替换原生自动引用与署名，调用方须提交完整的已授权正文和署名。扩展清理继承附件、关闭自动 vCard/公钥附件，只添加参数指定的已校验快照；发件 From、身份、主题、正文、附件元数据和字节哈希在发送前核对。原邮件 MIME 内容/位置、身份与收件范围在准备后及 `onBeforeSend` 再次核对，检测到变化就取消。此防护不隔离同一系统用户或其他扩展的恶意操作，也不是多方审批系统。
+
+原邮件、模式、身份 ID、发件地址、To/Cc/Bcc、主题、正文及附件摘要均绑定同一幂等键。`reply_email` 共享既有持久日志、领取与 unknown 恢复机制，未知结果不能换 key 重发。没有回复草稿接口；`create_draft` 继续创建独立新邮件草稿。
+
+官方依据与限制：Thunderbird [compose API](https://webextension-api.thunderbird.net/en/esr-mv2/compose.html#beginreply-messageid-replytype-details) 支持 `beginReply` 和两种回复模式，并提供只读回复类型/关联原邮件；[messages API](https://webextension-api.thunderbird.net/en/esr-mv2/messages.html#query-queryinfo) 支持账户内 RFC Message-ID 查询，数字 ID 在重启或移动后会变化。原生回复头由 Thunderbird 生成，不通过 `Re:` 主题或伪造自定义头模拟。HTML 会经原生编辑器规范化；回读与输入 DOM 内容不一致时安全失败。本地模拟测试证明请求边界与状态机制，不证明已在真实 Thunderbird 账户中发送或核验最终 MIME 回复头。
+
+Mozilla 官方源码中，[nsMsgCompose.cpp](https://github.com/mozilla/releases-comm-central/blob/master/mailnews/compose/src/nsMsgCompose.cpp) 将原 References 链与原 Message-ID 交给回复字段；[MimeMessage.sys.mjs](https://github.com/mozilla/releases-comm-central/blob/master/mailnews/compose/src/MimeMessage.sys.mjs) 生成 References 和 In-Reply-To。此源码核对说明原生机制，不代替目标 Thunderbird 版本的真实发送验收。`beginReply` 原生 API 会创建写信窗口；本接口不依靠 UI 自动化，也不承诺无窗口运行。
+
+## 原生转发边界
+
+`forward_email` 与回复使用相同的 RFC Message-ID、来源账户及发件身份选择规则，但只支持 `forward_attachment`。扩展通过 `messages.getRaw(messageId, {data_format: "File"})` 冻结来源 fingerprint，再调用 Thunderbird 官方 `compose.beginForward(messageId, "forwardAsAttachment", details)` 创建原生转发。发送路径保留 Thunderbird 生成的原生 `.eml`，不删除、重附或用 `compose.getAttachmentFile` 读取它；准备和发送前要求来源 fingerprint 稳定，原生附件恰好一个且 attachment ID 不变、扩展名为 `.eml`、metadata size 等于来源 raw size，固定 MIME 分类可接受。调用方新增附件按实际 attachment ID 逐字节校验，不假设 ID 连续。
+
+发送前及 `onBeforeSend` 会重新核对原邮件、来源 fingerprint、原生转发上下文、身份、收件人、主题、精确正文和附件 manifest。任何来源变化、原生附件 metadata 变化或调用方附件字节变化都取消发送。公开 compose API 无法可靠读取 Thunderbird 原生 `.eml` 的字节，因此 metadata 校验不能证明其逐字节内容；最终 `.eml` 封装对 Thunderbird 原生 `forwardAsAttachment` 实现保留有限信任。当前没有转发草稿接口，也不支持内联转发。
+
+官方依据：Thunderbird [compose API](https://webextension-api.thunderbird.net/en/esr-mv2/compose.html#beginforward-messageid-forwardtype-details) 定义 `beginForward(messageId, forwardType, details)` 与 `forwardAsAttachment`；[messages API](https://webextension-api.thunderbird.net/en/esr-mv2/messages.html#getraw-message-options) 推荐 `File` 格式读取原始邮件。离线模拟测试验证边界和防护，不证明目标 Thunderbird 版本的实际 `.eml` 命名、最终 MIME 或投递行为，部署和真实测试仍需单独授权。
 
 ## 查询完整性与附件
 
@@ -91,7 +120,7 @@ install -m 600 dist/native-host.json "$HOME/Library/Mozilla/NativeMessagingHosts
 
 `native-send-launcher` 使用自身目录下的 `.venv/bin/python`，支持含空格的安装路径。`scripts/deploy_send.py` 的 `--target` 必须与打包时 `--install-root` 一致；`--check` 和实际部署都检查主机路径、名称、stdio 类型和唯一扩展 ID。脚本的参数以 `--help` 为准。
 
-重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。`get_send_capabilities().ready` 应为 true，按所需功能检查 `attachments_v1`、`draft_v1`、`html_v1`。发件身份使用返回的实际身份；可按需预览草稿，直接发送须有用户授权。不得用真实发信作为普通安装自检。
+重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。回复、转发和 prepare-only 诊断需要加载与源码匹配的 0.11.0 扩展，新源码不能让旧扩展自动获得能力。`get_send_capabilities().ready` 应为 true，按所需功能检查 `attachments_v1`、`draft_v1`、`html_v1`、`reply_v1`、`forward_v1`、`forward_diagnostic_v1` 和返回的账户/身份信息。发件身份使用返回的实际身份；可按需预览普通草稿，回复和转发直接发送须有用户授权。不得用真实发信作为普通安装自检。
 
 停用自动发送可在 Thunderbird 中停用扩展；未领取请求会过期，但已领取或提交的邮件不能靠停用撤回。查询和原生 `compose_email` 不依赖扩展。多个本地 MCP 客户端使用同一系统用户时，共用该用户的发送队列与已启用扩展；各客户端须管理自己的调用权限。
 

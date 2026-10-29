@@ -152,6 +152,83 @@ def send_email(
 
 
 @mcp.tool()
+def reply_email(
+    to: list[str], subject: str, body: str, from_email: str, idempotency_key: str,
+    source_message_id: str, source_account_id: str, identity_id: str,
+    reply_mode: str = 'reply_all', cc: list[str] | None = None, bcc: list[str] | None = None,
+    attachments: list[dict[str, str]] | None = None, body_format: str = 'plain',
+) -> dict[str, object]:
+    """Actually send an explicitly authorized native reply; requires reply_v1.
+
+    Bind the original RFC Message-ID (not a query locator/numeric Thunderbird ID)
+    and source account from get_send_capabilities().accounts. identity_id must be
+    the unique from_email identity from capabilities. reply_mode is reply_all or
+    reply_sender. Explicit To/Cc/Bcc must match Thunderbird's native reply scope;
+    missing/ambiguous originals, changed account/identity or scope mismatch fail
+    without sending and NEVER fall back to a new message. Body replaces automatic
+    quotes/signature: include the entire approved text and signature explicitly.
+    Subject and attachments are explicit, with the same rules as send_email.
+    The original/mode/identity/recipients are immutable under idempotency_key.
+    Poll get_send_status; unknown must be investigated, never resent with a new key.
+    Caller must hold explicit authorization for this reply and all recipients.
+    """
+    return mail_sender.JOURNAL.enqueue(idempotency_key,
+        dict(to=to, subject=subject, body=body, from_email=from_email, cc=cc, bcc=bcc,
+             body_format=body_format, reply=dict(message_id=source_message_id,
+                 account_id=source_account_id, identity_id=identity_id, mode=reply_mode)),
+        attachments=attachments)
+
+
+@mcp.tool()
+def forward_email(
+    to: list[str], subject: str, body: str, from_email: str, idempotency_key: str,
+    source_message_id: str, source_account_id: str, identity_id: str,
+    forward_mode: str = 'forward_attachment', cc: list[str] | None = None, bcc: list[str] | None = None,
+    attachments: list[dict[str, str]] | None = None, body_format: str = 'plain',
+) -> dict[str, object]:
+    """Actually send an explicitly authorized native attachment forward; requires forward_v1.
+
+    Bind the original RFC Message-ID (not a query locator/numeric Thunderbird ID),
+    source account and unique sender identity from get_send_capabilities(). The
+    approved body is the exact message body; Thunderbird's native source-bound .eml
+    is guarded by attachment ID and metadata because the compose API cannot reliably
+    expose its bytes. Caller-added attachments keep the immutable hash contract.
+    Only forward_attachment is supported. Missing,
+    ambiguous or changed originals, identities or final message details fail closed
+    and never fall back to a new message. Poll get_send_status after pending/sending;
+    unknown outcomes must never be resent under a new key. Caller authorization must
+    cover every recipient, subject, commentary and caller-added attachment.
+    """
+    return mail_sender.JOURNAL.enqueue(idempotency_key,
+        dict(to=to, subject=subject, body=body, from_email=from_email, cc=cc, bcc=bcc,
+             body_format=body_format, forward=dict(message_id=source_message_id,
+                 account_id=source_account_id, identity_id=identity_id, mode=forward_mode)),
+        attachments=attachments)
+
+
+@mcp.tool()
+def diagnose_forward_preparation(source_message_id: str, source_account_id: str,
+    from_email: str, identity_id: str, diagnostic_key: str,
+    body_format: str = 'plain') -> dict[str, object]:
+    """Prepare and inspect a native attachment forward without sending or saving.
+
+    Requires forward_diagnostic_v1. This uses a separate diagnostic queue and
+    always closes the exact compose tab. Results contain only bounded stages and
+    attachment size/hash/type classifications; never message bodies, recipients,
+    subjects, paths or raw bytes.
+    """
+    return mail_sender.JOURNAL.enqueue_forward_diagnostic(diagnostic_key,
+        dict(message_id=source_message_id,account_id=source_account_id,
+             identity_id=identity_id,mode='forward_attachment'),from_email,body_format)
+
+
+@mcp.tool()
+def get_forward_diagnostic_status(diagnostic_key: str) -> dict[str, object]:
+    """Read prepare-only forward diagnostic status; this can never send mail."""
+    return mail_sender.JOURNAL.forward_diagnostic_status(diagnostic_key)
+
+
+@mcp.tool()
 def create_draft(
     to: list[str], subject: str, body: str, from_email: str,
     idempotency_key: str, cc: list[str] | None = None, bcc: list[str] | None = None,

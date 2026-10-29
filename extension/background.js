@@ -47,6 +47,7 @@ function request(message) {
 
 const report = (request_id, claim_token, result) => request({op:'complete',request_id,claim_token,result});
 const fetchAttachment = (job,index,offset) => request({op:'attachment',request_id:job.request_id,claim_token:job.claim_token,index,offset});
+const reportDiagnostic = (request_id,claim_token,result) => request({op:'diagnostic_complete',request_id,claim_token,result});
 
 async function poll() {
   if (polling) return;
@@ -56,13 +57,21 @@ async function poll() {
       await NativeSendCore.recover(browser, report);
       recovered = true;
     }
-    const identities = (await browser.accounts.list(false)).flatMap(a => a.identities || [])
-      .map(({id,email}) => ({id,email}));
-    const job = await request({op:'poll', identities, features:['attachments_v1','draft_v1','html_v1'], accept:!busy && recovered});
+    const accounts = await browser.accounts.list(false);
+    const identities = accounts.flatMap(a => (a.identities || []).map(({id,email}) => ({id,email,account_id:a.id})));
+    const job = await request({op:'poll', identities, accounts:accounts.map(({id,type,name})=>({id,type,name})),
+      features:['attachments_v1','draft_v1','html_v1','reply_v1','forward_v1','forward_diagnostic_v1'],
+      accept:!busy && recovered});
     if (job) {
       busy = true;
       NativeSendCore.execute(job, browser, report, fetchAttachment).catch(() => {recovered = false;})
         .finally(() => {busy = false;});
+    } else if (!busy) {
+      const diagnostic=await request({op:'diagnostic_poll',accept:true});
+      if(diagnostic){busy=true;NativeSendCore.diagnoseForward(diagnostic,browser)
+        .then(result=>reportDiagnostic(diagnostic.request_id,diagnostic.claim_token,result))
+        .catch(()=>reportDiagnostic(diagnostic.request_id,diagnostic.claim_token,{status:'failed',failure_stage:'forward_final_guard',close_confirmed:false}))
+        .finally(()=>{busy=false;});}
     }
   } catch (_) { /* Keep bridge offline until the next successful native heartbeat. */ }
   finally {polling = false;}

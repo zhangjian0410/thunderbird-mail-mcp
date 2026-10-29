@@ -18,7 +18,11 @@ class PackageTests(unittest.TestCase):
             module.build(ROOT, output, Path('/example/mail-mcp-server'))
             with zipfile.ZipFile(output/'thunderbird-native-send.xpi') as archive:
                 manifest = json.loads(archive.read('manifest.json'))
+                self.assertEqual(manifest['version'], '0.11.0')
                 self.assertIn('compose.send', manifest['permissions'])
+                self.assertIn(b'forward_v1', archive.read('background.js'))
+                self.assertIn(b'forward_diagnostic_v1', archive.read('background.js'))
+                self.assertIn(b'beginForward', archive.read('sender.js'))
                 for script in manifest['background']['scripts']:
                     self.assertTrue(archive.read(script))
                 native = json.loads((output/'native-host.json').read_text())
