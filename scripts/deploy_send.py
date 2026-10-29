@@ -22,6 +22,8 @@ FILES += ['tests/test_deployment.py']
 FILES += ['tests/test_reply.py', 'tests/reply.test.cjs', 'tests/test_mcp_protocol.py',
           'docs/reference.md', 'CHANGELOG.md', 'uv.lock']
 FILES += ['tests/test_forward.py', 'tests/forward.test.cjs']
+FILES += ['README.zh-CN.md', 'docs/reference.zh-CN.md',
+          'docs/development.md', 'docs/development.zh-CN.md', 'examples/mcp-stdio.json']
 
 
 def prepare(target, output, native_dir):

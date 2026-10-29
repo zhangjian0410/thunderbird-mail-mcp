@@ -1,3 +1,5 @@
+import ast
+import inspect
 import unittest
 from unittest.mock import patch
 import json
@@ -24,8 +26,32 @@ class ServerTests(unittest.TestCase):
             f'当前版本 **{version}**，总计 **{total_tool_count} 个工具**',
             (root / 'README.zh-CN.md').read_text())
         self.assertIn(
-            f'## {total_tool_count} 个 MCP 工具（总目录）',
+            f'## {total_tool_count} MCP tools (complete catalog)',
             (root / 'docs/reference.md').read_text())
+        self.assertIn(
+            f'## {total_tool_count} 个 MCP 工具（总目录）',
+            (root / 'docs/reference.zh-CN.md').read_text())
+
+    def test_bilingual_tool_catalogs_match_public_signatures_and_profiles(self):
+        root = Path(__file__).resolve().parents[1]
+        for filename in ('docs/reference.md', 'docs/reference.zh-CN.md'):
+            with self.subTest(document=filename):
+                rows = re.findall(
+                    r'^\| `([a-z_]+\([^`]*\))` \| `(read_only|review|direct_send)` \|',
+                    (root / filename).read_text(), re.MULTILINE)
+                documented = {ast.parse(call, mode='eval').body.func.id: (call, profile)
+                              for call, profile in rows}
+                self.assertEqual(len(rows), len(server.TOOL_REGISTRATIONS))
+                self.assertEqual(set(documented), {fn.__name__ for fn, _ in server.TOOL_REGISTRATIONS})
+                for function, minimum_profile in server.TOOL_REGISTRATIONS:
+                    call, profile = documented[function.__name__]
+                    self.assertEqual(profile, minimum_profile)
+                    parameters = [p.name if p.default is inspect.Parameter.empty
+                                  else f'{p.name}={p.default!r}'
+                                  for p in inspect.signature(function).parameters.values()]
+                    expected = f'{function.__name__}({", ".join(parameters)})'
+                    self.assertEqual(ast.dump(ast.parse(call, mode='eval')),
+                                     ast.dump(ast.parse(expected, mode='eval')))
 
     def test_html_format_is_exposed_and_reaches_both_queue_actions(self):
         import mail_sender

@@ -23,7 +23,7 @@
 | Prepare-only 转发诊断 | `diagnose_forward_preparation`、`get_forward_diagnostic_status` | 创建并检查原生附件转发后关闭目标窗口，不保存草稿或发送；诊断队列与发送队列隔离，需要扩展 `forward_diagnostic_v1` |
 | 查询发送条件和结果 | `get_send_capabilities`、`get_send_status` | 查询扩展在线状态、发件身份、特性及持久请求状态，提供幂等去重和发送副本验证信息 |
 
-查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.12.0**，总计 **16 个工具**；默认 `review` 公布 13 个，`read_only` 公布 10 个，只有 `direct_send` 公布全部 16 个。详见[工具与行为参考](docs/reference.md)。回复、转发和 prepare-only 诊断须加载对应新版扩展并重新连接 MCP；更新文件不代表旧进程已生效。
+查询不修改 mbox，也不标记已读。服务不直接连接 SMTP、POP 或 IMAP；账号认证和真实投递由 Thunderbird 处理。当前版本 **0.12.0**，总计 **16 个工具**；默认 `review` 公布 13 个，`read_only` 公布 10 个，只有 `direct_send` 公布全部 16 个。详见[工具与行为参考](docs/reference.zh-CN.md)。回复、转发和 prepare-only 诊断须加载对应新版扩展并重新连接 MCP；更新文件不代表旧进程已生效。
 
 ## 服务端能力档位
 
@@ -70,7 +70,7 @@ Sent 默认使用 Inbox 同目录的 `Sent` mbox。若实际存放位置不同�
 }
 ```
 
-这些调用不发送、移动或标记邮件。Sent 只包含已保存的发送副本，不包含待发 Outbox；副本存在不等于对方已经收到。完整参数和边界见[Inbox 与已发送副本查询](docs/reference.md#inbox-与已发送副本查询)。
+这些调用不发送、移动或标记邮件。Sent 只包含已保存的发送副本，不包含待发 Outbox；副本存在不等于对方已经收到。完整参数和边界见[Inbox 与已发送副本查询](docs/reference.zh-CN.md#inbox-与已发送副本查询)。
 
 ## Harness 与客户端兼容性
 
@@ -143,7 +143,7 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 
 > 查询发件人为 sender@example.test 的邮件，列出主题和日期；读取我指定的一封邮件，不创建草稿或发送。
 
-工具调用成功只证明本地数据可读；Thunderbird 是否已与邮件服务器同步需要另外确认。要使用草稿和发送能力，继续阅读[可选写信部署](docs/reference.md#可选写信部署macos)。
+工具调用成功只证明本地数据可读；Thunderbird 是否已与邮件服务器同步需要另外确认。要使用草稿和发送能力，继续阅读[可选写信部署](docs/reference.zh-CN.md#可选写信部署macos)。
 
 查询已发送邮件和合并范围的参数示例见[Sent 查询](#查询已发送邮件sent)。Sent 未配置到有效文件时，不影响默认 Inbox 查询。
 
@@ -175,8 +175,8 @@ Qoder IDE 在设置 → MCP → My Servers → Add 中添加配置；CLI 按其�
 | `scripts/` / `tests/` | 打包、部署检查、敏感信息扫描与自动测试 |
 | `examples/mcp-stdio.json` | 与 Harness 无关的本地启动参数示例 |
 
-- [工具、数据边界与写信部署](docs/reference.md)
-- [开发、依赖更新、CI 与敏感信息检查](docs/development.md)
+- [工具、数据边界与写信部署](docs/reference.zh-CN.md)
+- [开发、依赖更新、CI 与敏感信息检查](docs/development.zh-CN.md)
 - [版本变更](CHANGELOG.md)
 
 完整测试命令：

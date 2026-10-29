@@ -1,10 +1,30 @@
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from scripts import deploy_send, package_send
 
 class DeploymentTests(unittest.TestCase):
+    def test_prepared_documentation_keeps_bilingual_navigation_available(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.venv/bin').mkdir(parents=True)
+            (root / '.venv/bin/python').write_text('runtime')
+            package_send.build(deploy_send.SOURCE, root / 'package', root)
+            changes = deploy_send.prepare(root, root / 'package', root / 'native')
+            deployed_paths = {path.resolve() for path in changes}
+            for entry in ('docs/reference.md', 'docs/development.md'):
+                for language in ('', '.zh-CN'):
+                    document = root / entry.replace('.md', f'{language}.md')
+                    text = changes[document][0].decode()
+                    links = re.findall(r'\]\(([^)]+)\)', text)
+                    for link in links:
+                        relative = link.split('#', 1)[0]
+                        if relative and '://' not in relative:
+                            target = (document.parent / relative).resolve()
+                            self.assertIn(target, deployed_paths, f'Missing deployed link: {document} -> {link}')
+
     def test_installed_checkout_can_check_without_private_baseline(self):
         with TemporaryDirectory() as d:
             root=Path(d); (root/'server.py').write_text('content')

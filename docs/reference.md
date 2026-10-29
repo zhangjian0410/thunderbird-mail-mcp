@@ -1,123 +1,128 @@
-# 工具与行为参考
+# Tool and behavior reference
 
-[返回中文工程介绍](../README.zh-CN.md) | [English overview](../README.md)
+**English** | [简体中文](reference.zh-CN.md) · [Project overview](../README.md)
 
-## 16 个 MCP 工具（总目录）
+## 16 MCP tools (complete catalog)
 
-| 工具 | 最低档位 | 用途与主要参数 |
+| Tool | Minimum profile | Purpose and parameters |
 |---|---|---|
-| `list_mail_folders()` | `read_only` | 返回已配置的 Inbox/Sent 本地 mbox 及可用性；待发 Outbox 未接入 |
-| `query_email(keyword="", senders=None, start=None, end=None, folders=None, page_size=50, cursor=None)` | `read_only` | 分页查询；省略 `folders` 时只查 Inbox，可显式选择 Sent 或 Inbox+Sent；空关键词允许枚举，发件人按完整地址匹配，时间为带时区的 ISO 半开区间 `start ≤ date < end`，每页 1–200 封 |
-| `read_emails(locators, include_quoted_history=False, max_body_chars=30000)` | `read_only` | 一次读取 1–20 封，返回逐封结果、当前正文、引用正文、截断标记及附件 ID/哈希；正文限制参数范围 1000–100000 字符 |
-| `read_attachment(locator, attachment_id, offset=0, max_bytes=262144)` | `read_only` | 分段返回 base64、完整附件 SHA-256、总长度和 `next_offset`；单段最多 1 MiB |
-| `search_email(keyword, days=None, sender=None)` | `read_only` | 旧搜索接口：关键词必填、发件人子串匹配、无分页；新集成优先使用 `query_email` |
-| `read_email(message_id)` | `read_only` | 旧单封读取接口，返回正文和附件元数据，默认省略历史引用 |
-| `list_recent_email(limit=20)` | `read_only` | 旧列表接口，按日期倒序，最多 100 封 |
-| `compose_email(to, subject, body, cc=None, bcc=None)` | `review` | 打开 Thunderbird 原生写信窗口，不自动发送 |
-| `create_draft(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | `review` | 通过扩展保存原生草稿，绝不调用发送；轮询状态直到 `drafted` |
-| `send_email(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | 通过扩展实际发送用户授权的邮件；返回入队结果后须查询状态 |
-| `reply_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, reply_mode="reply_all", cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | 用原生回复上下文发送；支持 `reply_all` / `reply_sender`；收件范围须与 Thunderbird 原生结果完全一致，需要 `reply_v1` |
-| `forward_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, forward_mode="forward_attachment", cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | 用原生附件转发上下文发送；已授权说明是精确正文，原邮件保留为 Thunderbird 原生 `.eml`；需要 `forward_v1` |
-| `diagnose_forward_preparation(source_message_id, source_account_id, from_email, identity_id, diagnostic_key, body_format="plain")` | `review` | 独立 prepare-only 诊断；真实创建并关闭原生转发 tab，但绝不发送或保存草稿，只记录有界的非敏感大小、哈希与分类结果；附件分类最多保留 16 项，并以 `count` / `truncated` 表示完整数量；需要 `forward_diagnostic_v1` |
-| `get_forward_diagnostic_status(diagnostic_key)` | `read_only` | 查询独立诊断队列；不读取或改变发送队列 |
-| `get_send_status(idempotency_key)` | `read_only` | 查询同一请求的持久状态、Message-ID、发送副本验证结果 |
-| `get_send_capabilities()` | `read_only` | 查询扩展心跳、可用发件身份、特性和当前服务档位；不发送邮件 |
+| `list_mail_folders()` | `read_only` | List configured local Inbox/Sent mbox files and their availability. Pending Outbox is not connected. |
+| `query_email(keyword="", senders=None, start=None, end=None, folders=None, page_size=50, cursor=None)` | `read_only` | Paginate matching mail. Omitted `folders` means Inbox only; select Sent or Inbox+Sent explicitly. An empty keyword allows enumeration. Sender addresses match exactly. Dates use timezone-aware ISO timestamps with `start ≤ date < end`. Page size: 1–200. |
+| `read_emails(locators, include_quoted_history=False, max_body_chars=30000)` | `read_only` | Read 1–20 locators. Returns per-message results, current body, optional quoted history, truncation flags, and attachment IDs/hashes. Body limit: 1000–100000 characters. |
+| `read_attachment(locator, attachment_id, offset=0, max_bytes=262144)` | `read_only` | Return a base64 chunk, full-attachment SHA-256, total length, and `next_offset`. Maximum chunk: 1 MiB. |
+| `search_email(keyword, days=None, sender=None)` | `read_only` | Legacy Inbox search: required keyword, sender substring matching, no pagination. Prefer `query_email` for new integrations. |
+| `read_email(message_id)` | `read_only` | Legacy Inbox message read by Message-ID, with body and attachment metadata. Quoted history is omitted by default. |
+| `list_recent_email(limit=20)` | `read_only` | Legacy Inbox list, newest first. Limit: 1–100. |
+| `compose_email(to, subject, body, cc=None, bcc=None)` | `review` | Open a native Thunderbird compose window without sending. |
+| `create_draft(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | `review` | Save a native draft through the extension; never send. Poll for `drafted` or a terminal failure/unknown outcome. |
+| `send_email(to, subject, body, from_email, idempotency_key, cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | Send an authorized message through the extension. After acceptance, poll its status. |
+| `reply_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, reply_mode="reply_all", cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | Send in a native reply context. Supports `reply_all` / `reply_sender`; explicit recipients must match Thunderbird's native recipient fields. Requires `reply_v1`. |
+| `forward_email(to, subject, body, from_email, idempotency_key, source_message_id, source_account_id, identity_id, forward_mode="forward_attachment", cc=None, bcc=None, attachments=None, body_format="plain")` | `direct_send` | Send in a native attachment-forward context. The authorized commentary is the exact body; Thunderbird preserves the source as a native `.eml`. Requires `forward_v1`. |
+| `diagnose_forward_preparation(source_message_id, source_account_id, from_email, identity_id, diagnostic_key, body_format="plain")` | `review` | Prepare and inspect a native forward without sending or saving. Attempts to close its exact compose tab. Results contain bounded sizes, hashes, and classifications; at most 16 attachment classifications, with `count` / `truncated` for the full count. Requires `forward_diagnostic_v1`. |
+| `get_forward_diagnostic_status(diagnostic_key)` | `read_only` | Read the separate diagnostic queue, without reading or changing send requests. |
+| `get_send_status(idempotency_key)` | `read_only` | Read durable request status, Message-ID, and sent-copy verification; also expire unclaimed requests. |
+| `get_send_capabilities()` | `read_only` | Read extension heartbeat, sender identities, features, and the active server profile. Does not send mail. |
 
-`to`、`cc`、`bcc` 在草稿/自动发送接口中是纯邮箱地址数组；`from_email` 必须匹配唯一的现有身份。完整输入 schema 由 MCP `tools/list` 返回。
+For draft and direct-send tools, `to`, `cc`, and `bcc` are arrays of bare email addresses. `from_email` must match exactly one available identity. In `compose_email`, recipient fields are strings. MCP `tools/list` returns the full input schemas.
 
-## 服务端能力档位
+## Capability profiles
 
-在 MCP 客户端的 `env` 中设置 `THUNDERBIRD_MCP_PROFILE`。值必须精确为以下之一；变量省略时默认为 `review`，空值、大小写变体和未知值都会使服务拒绝启动。
+Set `THUNDERBIRD_MCP_PROFILE` in the MCP client's `env`. Values must match exactly. Omission defaults to `review`; empty values, case variants, and unknown values prevent startup.
 
-| 档位 | 工具数 | 服务端公布的能力 |
+| Profile | Tools | Exposed capabilities |
 |---|---:|---|
-| `read_only` | 10 | 邮件查询、正文/附件读取，以及发送与诊断状态查询；不公布打开写信窗口、保存草稿、prepare-only 诊断或直接发送工具 |
-| `review`（默认） | 13 | `read_only` 加 `compose_email`、`create_draft`、`diagnose_forward_preparation`；不公布任何直接发送工具 |
-| `direct_send` | 16 | 全部工具，包括 `send_email`、`reply_email`、`forward_email` |
+| `read_only` | 10 | Mail queries, body/attachment reads, and send/diagnostic status checks. No compose windows, drafts, preparation diagnostics, or direct sending. |
+| `review` (default) | 13 | Adds `compose_email`, `create_draft`, and `diagnose_forward_preparation` to `read_only`. No direct-send tools. |
+| `direct_send` | 16 | All tools, including `send_email`, `reply_email`, and `forward_email`. |
 
-档位在服务进程启动时确定。修改配置后须重新连接或重启 MCP 服务并刷新工具列表；客户端保存着旧连接时，编辑 JSON 本身不会改变现有进程。`get_send_capabilities()` 返回 `mcp_profile`、`review_enabled`、`direct_send_enabled`，可用于核对实际连接。档位只控制 MCP 服务公布哪些工具，不代替逐封授权、幂等检查或 Thunderbird 扩展能力检查。
+The profile is fixed when the server process starts. Restart or reconnect the MCP server and refresh the tool list after changing it. Editing a JSON file does not change an existing connection. `get_send_capabilities()` reports `mcp_profile`, `review_enabled`, and `direct_send_enabled`. Profiles control MCP tool registration; they do not replace message authorization, idempotency checks, or extension feature checks.
 
-## Inbox 与已发送副本查询
+`ready=true` means the last extension heartbeat is no more than 15 seconds old; it does not mean direct sending is enabled or a message is authorized. Status/capability tools may initialize the local journal, and `get_send_status` cleans up expired pending requests. Thus `read_only` restricts mail actions, not all filesystem writes. Switching to a lower profile does not cancel requests already queued by another connection or an earlier process.
 
-`THUNDERBIRD_INBOX_PATH` 指向收件箱 mbox；`THUNDERBIRD_SENT_PATH` 可单独指定已发送副本 mbox，省略时使用 Inbox 同目录的 `Sent`。这只是显式路径配置及默认路径派生，不会发现账户、读取账户密码或自动核验 FCC 设置；实际发送副本位置由 Thunderbird 决定。
+## Inbox and Sent queries
 
-`query_email()` 默认仍只查询 Inbox，即使 Sent 文件不可用也不影响此默认范围。传入 `folders=["Sent"]` 可枚举已发送副本，`folders=["Inbox", "Sent"]` 合并查询；每条结果保留 `folder`，其 locator 可继续传给 `read_emails` / `read_attachment`。旧 `search_email`、`read_email`、`list_recent_email` 保持仅限 Inbox。
+`THUNDERBIRD_INBOX_PATH` points to the Inbox mbox. Optional `THUNDERBIRD_SENT_PATH` selects the Sent mbox; otherwise it uses `Sent` beside Inbox. These are explicit paths and a derived default: the server does not discover accounts, read account passwords, or verify sent-copy (FCC) settings. Thunderbird determines where sent copies are actually saved.
 
-Sent 查询链只读取本地 mbox，不触发 `send_email`，不移动或标记邮件。Sent 是已保存的发送副本，不是待发 Outbox；Outbox、空范围、重复或未知文件夹名称均不接受。`server_sync_status` 仍为 unknown，副本存在不能证明对方收到邮件。
+`query_email()` defaults to Inbox even if Sent is unavailable. Use `folders=["Sent"]` for saved sent copies or `folders=["Inbox", "Sent"]` for both. Each result retains its `folder`; pass its locator to `read_emails` or `read_attachment`. Legacy `search_email`, `read_email`, and `list_recent_email` remain Inbox-only.
 
-## 写信、回复、转发与诊断接口的执行路径
+Sent queries only read local mbox data. They do not invoke `send_email`, move mail, or mark it read. Sent holds saved copies, not pending Outbox messages. Outbox, an empty folder selection, duplicate folders, and unknown folder names are rejected. `server_sync_status` remains `unknown`; a saved copy does not prove recipient delivery.
 
-| 接口 | 服务与 Thunderbird 执行路径 | 最终行为 |
+## Writing, reply, forward, and diagnostic execution
+
+| Tool | Server and Thunderbird path | Outcome |
 |---|---|---|
-| `compose_email` | `MailComposer` → Thunderbird CLI `-compose` | 打开写信窗口；接口不自动保存或发送 |
-| `create_draft` | 入队时指定 `action="draft"` → 扩展 `compose.saveMessage(..., {mode: "draft"})` | 只保存草稿，状态为 `drafted` |
-| `send_email` | 入队使用默认 `action="send"` → 扩展 `compose.sendMessage(..., {mode: "sendNow"})` | 直接发信，成功后状态为 `sent`；不会先调用保存草稿接口 |
-| `reply_email` | 入队保留不可变 `reply` → 账户内唯一定位 RFC Message-ID → `compose.beginReply(..., "replyToAll" / "replyToSender")` → `sendMessage(..., {mode: "sendNow"})` | 发送真实回复；任何定位、身份或收件范围失配都停止，不回退到新邮件 |
-| `forward_email` | 入队保留不可变 `forward` → 账户内唯一定位 RFC Message-ID → 冻结原始邮件字节 → `compose.beginForward(..., "forwardAsAttachment")` → 设置精确说明正文 → `sendMessage(..., {mode: "sendNow"})` | 发送真实附件式转发；原邮件作为 `.eml` 完整保留，任何源或最终内容变化都停止，不回退到新邮件 |
-| `diagnose_forward_preparation` | 独立诊断队列 → 原生 `forwardAsAttachment` → 读取来源 raw → 临时替换并回读 `.eml` → 关闭精确 tab | 只验证准备链；代码路径不调用发送或保存草稿，结果与发送队列隔离 |
+| `compose_email` | `MailComposer` → Thunderbird CLI `-compose` | Open a compose window; no automatic save or send. |
+| `create_draft` | Queue with `action="draft"` → extension `compose.saveMessage(..., {mode: "draft"})` | Save only; status becomes `drafted`. |
+| `send_email` | Queue with default `action="send"` → extension `compose.sendMessage(..., {mode: "sendNow"})` | Send directly; status becomes `sent` on confirmed submission. No preceding draft save. |
+| `reply_email` | Immutable `reply` context → unique account-scoped RFC Message-ID lookup → `compose.beginReply(..., "replyToAll" / "replyToSender")` → `sendMessage(..., {mode: "sendNow"})` | Send a native reply; fail on source, identity, or recipient mismatch. Never fall back to a new message. |
+| `forward_email` | Immutable `forward` context → unique account-scoped RFC Message-ID lookup → snapshot source raw bytes → `compose.beginForward(..., "forwardAsAttachment")` → set exact commentary → `sendMessage(..., {mode: "sendNow"})` | Send a native attachment forward, retaining Thunderbird's `.eml`. Check source and final content; never fall back to a new message. Native attachment verification is limited to the metadata checks below. |
+| `diagnose_forward_preparation` | Separate queue → read source raw bytes → native `forwardAsAttachment` → temporarily replace and reread the `.eml` → attempt to close the exact tab | Inspect preparation only. No send or draft-save call; results remain separate from send requests. |
 
-`create_draft` 与 `send_email` 不是一条必须顺序执行的调用链。保存草稿是独立动作；直接发送不要求草稿 ID，也不要求用户再在 Thunderbird 窗口中点击发送。扩展离线、发件身份不匹配或缺少所需特性时，请求会拒绝入队；Thunderbird 的发送过程仍可能失败或返回未知结果。
+`create_draft` and `send_email` are independent actions, not a mandatory sequence. Direct sending requires neither a draft ID nor a manual Send click. New requests are rejected when the extension is offline, the sender identity does not match, or required features are missing. Thunderbird may still fail or return an uncertain outcome during execution.
 
-服务端检查参数、扩展在线状态、身份、特性、附件完整性和幂等键，不检查人工审批记录或确认令牌。调用方负责取得用户授权及执行客户端权限策略；工具描述中的授权要求不是服务端的人工审批机制。
+The server validates inputs, extension availability, identities, features, attachment integrity, and idempotency keys. It does not validate human approval records or confirmation tokens. The caller obtains user authorization and applies its client permission policy; authorization wording in a tool description is not a server-side approval mechanism.
 
-## 原生回复边界
+A diagnostic result includes `close_confirmed`. If tab closure fails, it returns `status="failed"` and `failure_stage="close_not_confirmed"`; the extension retains the send-blocking guard for that tab. Do not assume every diagnostic successfully closes its window.
 
-`source_message_id` 是原邮件 RFC Message-ID，可带一对尖括号，不能传本地查询 locator 或 Thunderbird 临时数字 ID。先读原邮件并确认用户授权，再从 `get_send_capabilities()` 返回的 `accounts[{id,type,name}]` 按实际账户名称/类型选择原邮件账户，使用 `identities[{id,email,account_id}]` 中与 `from_email` 唯一匹配的 `id`。原邮件可能位于 Local Folders，其账户可以与发件身份账户不同。账户不明确时先核实，不能猜测。
+## Native reply boundaries
 
-扩展只在指定账户内本地查询 Message-ID，遍历所有结果页，要求唯一且非外部文件邮件；原邮件缺失、重复、账户或身份变化、正文读取失败都不发送。使用原生 `beginReply` 后回读 `type="reply"` 和 `relatedMessageId`；先将 Thunderbird 自动计算的 To/Cc/Bcc 与显式授权范围逐字段比较（忽略地址大小写与字段内顺序），不同就关闭并失败。当前接口不支持在回复时增删或移动收件人字段，原生附带的 Bcc 也必须得到显式授权。
+`source_message_id` is the original RFC Message-ID, optionally surrounded by one pair of angle brackets. It is not a query locator or Thunderbird's temporary numeric message ID. Read the source and confirm user authorization, then select the source account from `get_send_capabilities().accounts[{id,type,name}]` using its actual name/type. Select the `id` from `identities[{id,email,account_id}]` that uniquely matches `from_email`. A source in Local Folders may belong to a different account from the sending identity. Resolve an ambiguous account before calling.
 
-正文参数替换原生自动引用与署名，调用方须提交完整的已授权正文和署名。扩展清理继承附件、关闭自动 vCard/公钥附件，只添加参数指定的已校验快照；发件 From、身份、主题、正文、附件元数据和字节哈希在发送前核对。原邮件 MIME 内容/位置、身份与收件范围在准备后及 `onBeforeSend` 再次核对，检测到变化就取消。此防护不隔离同一系统用户或其他扩展的恶意操作，也不是多方审批系统。
+The extension queries Message-ID locally within the specified account, follows every result page, and requires exactly one non-external message. Missing/duplicate sources, changed accounts or identities, or failed source reads prevent sending. After native `beginReply`, it checks `type="reply"` and `relatedMessageId`. It compares Thunderbird's computed To/Cc/Bcc against the explicitly authorized fields, ignoring address case and order within each field. A mismatch closes the prepared tab when possible and fails. The tool does not support adding, removing, or moving reply recipients between fields; any native Bcc recipients must also be explicitly authorized.
 
-原邮件、模式、身份 ID、发件地址、To/Cc/Bcc、主题、正文及附件摘要均绑定同一幂等键。`reply_email` 共享既有持久日志、领取与 unknown 恢复机制，未知结果不能换 key 重发。没有回复草稿接口；`create_draft` 继续创建独立新邮件草稿。
+The body replaces automatic quotes and the signature; provide the complete authorized text and signature. The extension removes inherited attachments, disables automatic vCard/public-key attachments, and adds only the verified snapshots supplied by the caller. It checks From, identity, subject, body, attachment metadata, and byte hashes before sending. It rechecks the source MIME content/location, identity, and recipients after preparation and during `onBeforeSend`, cancelling on change. These guards do not isolate malicious programs running as the same OS user or other extensions, and do not implement multi-party approval.
 
-官方依据与限制：Thunderbird [compose API](https://webextension-api.thunderbird.net/en/esr-mv2/compose.html#beginreply-messageid-replytype-details) 支持 `beginReply` 和两种回复模式，并提供只读回复类型/关联原邮件；[messages API](https://webextension-api.thunderbird.net/en/esr-mv2/messages.html#query-queryinfo) 支持账户内 RFC Message-ID 查询，数字 ID 在重启或移动后会变化。原生回复头由 Thunderbird 生成，不通过 `Re:` 主题或伪造自定义头模拟。HTML 会经原生编辑器规范化；回读与输入 DOM 内容不一致时安全失败。本地模拟测试证明请求边界与状态机制，不证明已在真实 Thunderbird 账户中发送或核验最终 MIME 回复头。
+The source, mode, identity ID, sender, To/Cc/Bcc, subject, body, and attachment digests are bound to one idempotency key. `reply_email` shares the durable journal, claim mechanism, and `unknown` recovery rules. Never resend an uncertain outcome with a new key. There is no reply-draft tool; `create_draft` creates a separate new-message draft.
 
-Mozilla 官方源码中，[nsMsgCompose.cpp](https://github.com/mozilla/releases-comm-central/blob/master/mailnews/compose/src/nsMsgCompose.cpp) 将原 References 链与原 Message-ID 交给回复字段；[MimeMessage.sys.mjs](https://github.com/mozilla/releases-comm-central/blob/master/mailnews/compose/src/MimeMessage.sys.mjs) 生成 References 和 In-Reply-To。此源码核对说明原生机制，不代替目标 Thunderbird 版本的真实发送验收。`beginReply` 原生 API 会创建写信窗口；本接口不依靠 UI 自动化，也不承诺无窗口运行。
+API context and limits: Thunderbird's [compose API](https://webextension-api.thunderbird.net/en/esr-mv2/compose.html#beginreply-messageid-replytype-details) provides `beginReply`, the reply modes, and read-only reply type/related-message fields. The [messages API](https://webextension-api.thunderbird.net/en/esr-mv2/messages.html#query-queryinfo) supports account-scoped RFC Message-ID queries; numeric IDs can change after restarts or moves. Thunderbird generates native reply headers; this project does not imitate them with a `Re:` subject or fabricated headers. HTML is normalized by the native editor, and a mismatch between canonicalized input and read-back DOM content fails closed. Mock tests establish request and state boundaries, not real-account delivery or final MIME reply headers.
 
-## 原生转发边界
+In Mozilla's source, [nsMsgCompose.cpp](https://github.com/mozilla/releases-comm-central/blob/master/mailnews/compose/src/nsMsgCompose.cpp) passes the original References chain and Message-ID into reply fields; [MimeMessage.sys.mjs](https://github.com/mozilla/releases-comm-central/blob/master/mailnews/compose/src/MimeMessage.sys.mjs) builds References and In-Reply-To. These references explain the native mechanism and do not replace testing on the target Thunderbird version. `beginReply` creates a compose window; the tool does not rely on UI automation or promise windowless operation.
 
-`forward_email` 与回复使用相同的 RFC Message-ID、来源账户及发件身份选择规则，但只支持 `forward_attachment`。扩展通过 `messages.getRaw(messageId, {data_format: "File"})` 冻结来源 fingerprint，再调用 Thunderbird 官方 `compose.beginForward(messageId, "forwardAsAttachment", details)` 创建原生转发。发送路径保留 Thunderbird 生成的原生 `.eml`，不删除、重附或用 `compose.getAttachmentFile` 读取它；准备和发送前要求来源 fingerprint 稳定，原生附件恰好一个且 attachment ID 不变、扩展名为 `.eml`、metadata size 等于来源 raw size，固定 MIME 分类可接受。调用方新增附件按实际 attachment ID 逐字节校验，不假设 ID 连续。
+## Native forward boundaries
 
-发送前及 `onBeforeSend` 会重新核对原邮件、来源 fingerprint、原生转发上下文、身份、收件人、主题、精确正文和附件 manifest。任何来源变化、原生附件 metadata 变化或调用方附件字节变化都取消发送。公开 compose API 无法可靠读取 Thunderbird 原生 `.eml` 的字节，因此 metadata 校验不能证明其逐字节内容；最终 `.eml` 封装对 Thunderbird 原生 `forwardAsAttachment` 实现保留有限信任。当前没有转发草稿接口，也不支持内联转发。
+`forward_email` uses the same RFC Message-ID, source-account, and sender-identity selection rules as replies, but supports only `forward_attachment`. The extension snapshots the source fingerprint with `messages.getRaw(messageId, {data_format: "File"})`, then calls `compose.beginForward(messageId, "forwardAsAttachment", details)`. The send path retains Thunderbird's native `.eml`: it neither removes/re-attaches it nor reads its bytes through `compose.getAttachmentFile`. Preparation and final checks require a stable source fingerprint and exactly one native attachment with an unchanged attachment ID, a `.eml` extension, metadata size equal to the source raw size, and an accepted MIME classification. Caller-added attachments are checked byte-for-byte using actual attachment IDs, without assuming consecutive IDs.
 
-官方依据：Thunderbird [compose API](https://webextension-api.thunderbird.net/en/esr-mv2/compose.html#beginforward-messageid-forwardtype-details) 定义 `beginForward(messageId, forwardType, details)` 与 `forwardAsAttachment`；[messages API](https://webextension-api.thunderbird.net/en/esr-mv2/messages.html#getraw-message-options) 推荐 `File` 格式读取原始邮件。离线模拟测试验证边界和防护，不证明目标 Thunderbird 版本的实际 `.eml` 命名、最终 MIME 或投递行为，部署和真实测试仍需单独授权。
+Before sending and during `onBeforeSend`, the extension rechecks the original, source fingerprint, native forward context, identity, recipients, subject, exact body, and attachment manifest. Changes to the source, native attachment metadata, or caller-added attachment bytes cancel sending. The public compose API cannot reliably expose native `.eml` bytes; metadata checks therefore cannot prove byte equality. Final native `.eml` packaging retains limited trust in Thunderbird's `forwardAsAttachment` implementation. There is no forward-draft tool or inline-forward mode.
 
-## 查询完整性与附件
+API references: [compose.beginForward](https://webextension-api.thunderbird.net/en/esr-mv2/compose.html#beginforward-messageid-forwardtype-details) defines native attachment forwarding; [messages.getRaw](https://webextension-api.thunderbird.net/en/esr-mv2/messages.html#getraw-message-options) supports reading raw mail as a `File`. Offline mocks verify boundaries and guards, not actual `.eml` naming, final MIME, or delivery on a target Thunderbird version. Deployment and real-mail testing require their own authorization.
 
-推荐调用顺序：`list_mail_folders` → `query_email` → 保持查询参数并跟随 `next_cursor` 至 null → `read_emails` → 按附件 ID 分段 `read_attachment`。
+## Query completeness and attachments
 
-`coverage.local_status=complete` 只证明选定本地 mbox 的匹配记录已枚举；未读正文、未读附件不能视作已经处理。坏日期、发件人等不可索引记录进入 `coverage.gaps`，覆盖仍为 partial。`server_sync_status` 始终为 unknown，不能用文件时间代表 POP 同步完成。
+Recommended sequence: `list_mail_folders` → `query_email` → follow `next_cursor` to null with unchanged query parameters → `read_emails` → read attachment chunks by attachment ID.
 
-索引仅缓存邮件头和位置。mbox device/inode/size/mtime/ctime 改变会使缓存失效；cursor 绑定查询及快照，locator/cursor 在服务重启或邮箱变化后须重新获取。RFC Message-ID 可能为空或重复，不能替代 locator。旧查询接口会跳过坏日期并向 stderr 发出不含邮件正文的警告。
+`coverage.local_status=complete` only establishes enumeration of matching records in the selected local mbox files. Unread bodies or attachments have not been processed. Unindexable headers, including invalid dates/senders, appear in `coverage.gaps`, leaving coverage partial. `server_sync_status` is always `unknown`; file timestamps cannot establish completed POP synchronization.
 
-正文优先取纯文本；HTML 读取只做文字转换。引用分离属于启发式，可用 `include_quoted_history=true` 核查，正文/引用的截断标记分别检查。单封邮件读取上限 64 MiB。附件读取不执行文件、不标记邮件、不连接邮件服务器；调用方须合并分段并校验大小与 SHA-256。附加 `.eml` 标为 `serialized_message_rfc822`，是重新序列化后的邮件；普通附件标为 `decoded_payload`。
+The index caches headers and positions only. Changes to mbox device/inode/size/mtime/ctime invalidate it. Cursors bind the query and snapshot; obtain new locators/cursors after a server restart or mailbox change. RFC Message-IDs may be empty or duplicated and cannot replace locators. Legacy queries skip invalid dates and emit warnings to stderr without message bodies.
 
-## 草稿、HTML 与发送状态
+Body reads prefer plain text; HTML is converted to text. Quoted-history separation is heuristic: inspect with `include_quoted_history=true` when needed, checking body/history truncation separately. The locator-based `read_emails` / `read_attachment` path limits individual messages to 64 MiB; this limit is not implemented by legacy `read_email`. Reading attachments does not execute files, mark messages read, or connect to a mail server. Reassemble chunks and verify size and SHA-256. Attached messages use `serialized_message_rfc822` (reserialized mail); multipart MIME attachments use `serialized_mime_part`; ordinary attachments use `decoded_payload`.
 
-`body_format` 接受 plain（默认）或 html。HTML 必须是真实 HTML，不自动转换 Markdown；扩展使用 HTML 编辑模式和 `deliveryFormat: "both"`，由 Thunderbird 生成纯文本备用内容。接口不支持独立提交两份正文，也不净化任意 HTML。使用简单 table、内联样式，避免脚本、表单、外部资源与跟踪图片。建议先保存原生草稿检查实际呈现；这是预览建议，不是 `send_email` 的技术前置条件。
+## Drafts, HTML, and send status
 
-若预览后选择发送，须取得发送授权，再以新的幂等键调用 `send_email` 并提供最终正文和附件。该调用创建独立发送请求，不会自动读取、发送或删除先前保存的草稿；目前没有按草稿 ID 发送的工具。
+`body_format` accepts `plain` (default) or `html`. Supply actual HTML; Markdown is not converted. The extension uses HTML compose mode and `deliveryFormat: "both"`, letting Thunderbird generate the plain-text alternative. The interface cannot accept two independently authored bodies and does not sanitize arbitrary HTML. Prefer simple tables and inline styles; avoid scripts, forms, remote resources, and tracking images. Previewing a native draft is recommended, not a technical prerequisite for `send_email`.
 
-附件参数格式为 `[{"path":"/absolute/file.xlsx","sha256":"<64位SHA-256>"}]`，最多 10 个、合计 20 MiB，只接受绝对路径的普通文件。首次入队核验用户已审阅文件的 SHA-256 并保存不可变快照，扩展再校验字节数及哈希；桥接每次最多传 256 KiB。
+If sending after a preview, obtain authorization and call `send_email` with a new idempotency key and the final body/attachments. This creates a separate request; it does not read, send, or delete the prior draft. No tool sends an existing draft by ID.
 
-每次逻辑发送或草稿使用独立 `idempotency_key`；超时或重试须复用原 key。相同 key 重试使用已保存的附件摘要，不重新读取已删除或变化的原文件；仍须提供相同正文、动作、附件文件名/顺序/预期哈希。不能将同一 key 的 plain 改成 html。单独查询状态无需再次提供正文和附件。
+Attachments use `[{"path":"/absolute/file.xlsx","sha256":"<64-hex-digit-SHA-256>"}]`: up to 10 files and 20 MiB combined, using absolute paths to regular files. On first enqueue, the server checks the expected hash of the reviewed bytes and stores an immutable snapshot. The extension verifies sizes/hashes again; bridge chunks are at most 256 KiB.
 
-| 状态 | 含义 |
+Use a distinct `idempotency_key` for each logical send or draft, and reuse it after timeouts or when retrying that request. Same-key retries use stored attachment digests without reopening changed/deleted source files. Body, action, attachment filenames/order/expected hashes must still match. A key cannot change from plain to HTML. Status-only queries do not require body or attachments again.
+
+| Status | Meaning |
 |---|---|
-| `pending` | 等待扩展领取；尚未发送或保存草稿 |
-| `sending` | 已领取；中断后不能自动重新入队 |
-| `sent` | Thunderbird 确认提交至发件服务器，不保证最终送达 |
-| `drafted` | Thunderbird 已保存草稿；不是发送授权 |
-| `failed` / `expired` | 请求失败，或 60 秒内未被领取而过期 |
-| `unknown` | 结果无法确认，须核查，不能换 key 重发 |
+| `pending` | Waiting for the extension to claim it; neither sent nor saved. |
+| `sending` | Claimed; an interruption must not automatically requeue it. |
+| `sent` | Thunderbird confirmed submission to the outgoing server; not a delivery guarantee. |
+| `drafted` | Thunderbird saved the draft; not authorization to send. |
+| `failed` / `expired` | Failed, or remained unclaimed for more than 60 seconds. |
+| `unknown` | Outcome cannot be confirmed; investigate without sending again under a new key. A claimed request without a recorded outcome is reported as unknown after 300 seconds. |
+| `not_found` | No request exists for the supplied key. |
 
-`copy_status=verified` 表示扩展读到了相同 Message-ID 的发送副本；`not_verified` 不能作为重发理由。Sent/Drafts 位置沿用账户设置，投递与客户端副本保存失败分开报告。
+`copy_status=verified` means the extension read a sent copy with the same Message-ID. `not_verified` is not a reason to resend. Sent/Drafts destinations follow account settings; delivery and local copy-save failures are reported separately.
 
-发送队列位于 `~/Library/Application Support/ThunderbirdMailMCP/send.sqlite3`，目录权限 0700、数据库 0600。完成或未领取超时会清除正文并释放附件 BLOB；异常中断的 sending 请求保留取证数据。SQLite 删除不保证底层安全擦除；不要删除数据库来重试结果不明的发送。
+The queue lives at `~/Library/Application Support/ThunderbirdMailMCP/send.sqlite3`, with directory mode 0700 and database mode 0600. Recording a completion, or cleaning up an expired unclaimed request, clears its payload and releases attachment BLOBs. Interrupted claimed requests without a recorded outcome retain forensic data. SQLite deletion does not guarantee secure erasure; do not delete the database to retry an uncertain send.
 
-## 可选写信部署（macOS）
+## Optional writing deployment (macOS)
 
-查询功能不需要安装扩展。需要创建原生草稿或发送时，先在目标安装目录完成 README 中的依赖安装，确保 Thunderbird 153+，然后手动执行：
+Queries need no extension. For native drafts or sending, first install dependencies in the chosen directory as described in the [README](../README.md#1-install-the-server), ensure Thunderbird 153+, then run:
 
 ```bash
 chmod 700 native-send-launcher
@@ -126,20 +131,20 @@ mkdir -p "$HOME/Library/Mozilla/NativeMessagingHosts"
 install -m 600 dist/native-host.json "$HOME/Library/Mozilla/NativeMessagingHosts/com.thunderbird_mail_mcp.native_send.json"
 ```
 
-这些命令会在本机注册 native host；仅在明确选择的安装目录部署。打包本身不启用扩展。在 Thunderbird → 附加组件和主题 → 从文件安装附加组件，选择 `dist/thunderbird-native-send.xpi`，审阅权限后启用。
+These commands register the native host locally. Run them only in the intended installation directory. Packaging does not enable the extension. In Thunderbird's Add-ons and Themes manager, choose Install Add-on From File, select `dist/thunderbird-native-send.xpi`, review its permissions, and enable it.
 
-扩展权限包括 accountsRead、messagesRead、compose、compose.send、compose.save、nativeMessaging、storage。原生主机允许列表仅包含固定扩展 ID `native-send@thunderbird-mail-mcp.local`；同一系统用户下的本地程序仍处于信任边界内。
+Extension permissions are accountsRead, messagesRead, compose, compose.send, compose.save, nativeMessaging, and storage. The native-host allowlist contains only `native-send@thunderbird-mail-mcp.local`. Other programs running as the same OS user remain within the trust boundary.
 
-`native-send-launcher` 使用自身目录下的 `.venv/bin/python`，支持含空格的安装路径。`scripts/deploy_send.py` 的 `--target` 必须与打包时 `--install-root` 一致；`--check` 和实际部署都检查主机路径、名称、stdio 类型和唯一扩展 ID。脚本的参数以 `--help` 为准。
+`native-send-launcher` uses `.venv/bin/python` beside itself and supports installation paths containing spaces. For `scripts/deploy_send.py`, `--target` must match the package's `--install-root`. Both `--check` and actual deployment validate host path, name, stdio type, and the single allowed extension ID. Consult `--help` for arguments. This script updates a fixed file list in an existing installation with a Python runtime; it is not a complete clone/dependency installer.
 
-重新连接所用 MCP 客户端以刷新参数；源码更新不会让已运行进程自动重载。回复、转发和 prepare-only 诊断需要加载与源码匹配的 0.12.0 扩展，新源码不能让旧扩展自动获得能力。直接发送还须以 `THUNDERBIRD_MCP_PROFILE=direct_send` 启动服务。`get_send_capabilities().ready` 应为 true，按所需功能检查 `attachments_v1`、`draft_v1`、`html_v1`、`reply_v1`、`forward_v1`、`forward_diagnostic_v1` 和返回的账户/身份信息。发件身份使用返回的实际身份；可按需预览普通草稿，回复和转发直接发送须有用户授权。不得用真实发信作为普通安装自检。
+Reconnect your MCP client to refresh its tools and parameters; source updates do not reload running processes. Use the matching 0.12.0 extension for this source version. Runtime compatibility is checked through advertised features, not an exact version-string gate; new source cannot give an old extension missing features. Direct sending requires `THUNDERBIRD_MCP_PROFILE=direct_send`. Check `get_send_capabilities().ready`, required `attachments_v1`, `draft_v1`, `html_v1`, `reply_v1`, `forward_v1`, `forward_diagnostic_v1` features, and actual account/identity data. Replies and forwards require sending authorization. Do not use real sending as a routine installation check.
 
-停用自动发送可在 Thunderbird 中停用扩展；未领取请求会过期，但已领取或提交的邮件不能靠停用撤回。查询和原生 `compose_email` 不依赖扩展。多个本地 MCP 客户端使用同一系统用户时，共用该用户的发送队列与已启用扩展；各客户端须管理自己的调用权限。
+Disable the extension in Thunderbird to stop it from taking new work. Unclaimed requests expire, but disabling cannot retract a claimed or submitted message. Queries and `compose_email` do not require the extension. Multiple MCP clients running as the same OS user share the send queue and enabled extension; each client must manage its own permissions.
 
-## 常见问题
+## Troubleshooting
 
-- **找不到 Inbox**：核对 `THUNDERBIRD_INBOX_PATH` 指向真实 mbox 文件，不是账户目录或 Maildir；服务不会自动发现 Thunderbird profile。
-- **Operation not permitted**：在 macOS 系统设置 → 隐私与安全性中，为实际启动服务的应用或终端授予所需文件访问权限。
-- **客户端只有 URL 输入框**：确认其支持本地 stdio；本项目没有可填写的 HTTP/SSE 地址。
-- **扩展离线或能力缺失**：核对 Thunderbird/扩展版本、native host 路径、`.venv/bin/python` 与扩展是否启用。不会通过重装客户端补齐 Thunderbird 能力。
-- **升级后工具未变化**：按所用客户端的流程刷新或重新连接 MCP，必要时在新对话中检查；不要仅凭源码版本判断旧进程已更新。
+- **Inbox not found:** `THUNDERBIRD_INBOX_PATH` must point to a real mbox file, not an account directory or Maildir. The server does not discover Thunderbird profiles.
+- **Operation not permitted:** grant the launching app or terminal the necessary file access in macOS System Settings → Privacy & Security.
+- **The client only accepts a URL:** use a client supporting local stdio. This project has no HTTP/SSE endpoint.
+- **Extension offline or missing features:** check Thunderbird/extension versions, native-host path, `.venv/bin/python`, and extension activation. Reinstalling the MCP client cannot add Thunderbird features.
+- **Tools unchanged after an upgrade:** refresh/reconnect MCP using the client's procedure, and check in a new conversation if needed. Source version alone does not prove the connected process was updated.

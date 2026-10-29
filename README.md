@@ -24,7 +24,7 @@ This is a standalone Python MCP server using standard **stdio** transport. It do
 | Diagnose forward preparation | `diagnose_forward_preparation`, `get_forward_diagnostic_status` | Prepare and inspect a native attachment forward, then close its window without saving or sending. Uses a separate diagnostic queue. Requires `forward_diagnostic_v1`. |
 | Inspect capabilities and outcomes | `get_send_capabilities`, `get_send_status` | Read extension health, sender identities, features, the active server profile, and durable request status, including idempotency and sent-copy verification. |
 
-Queries do not modify mbox files or mark messages as read. The server does not connect directly to SMTP, POP, or IMAP; Thunderbird handles account authentication and delivery. Current version: **0.12.0**, with **16 tools** in total. The default `review` profile exposes 13, `read_only` exposes 10, and `direct_send` exposes all 16. See the [tool and behavior reference (Chinese)](docs/reference.md).
+Queries do not modify mbox files or mark messages as read. The server does not connect directly to SMTP, POP, or IMAP; Thunderbird handles account authentication and delivery. Current version: **0.12.0**, with **16 tools** in total. The default `review` profile exposes 13, `read_only` exposes 10, and `direct_send` exposes all 16. See the [tool and behavior reference](docs/reference.md).
 
 Replies, forwards, and preparation diagnostics require an extension with the corresponding features and a refreshed MCP connection. Updating files does not update a running process.
 
@@ -75,7 +75,7 @@ By default, Sent is the `Sent` mbox beside the configured Inbox file. If it live
 }
 ```
 
-These calls do not send, move, or mark messages. Sent does not include pending Outbox messages, and a saved copy does not prove recipient delivery. Full parameters and boundaries are documented in the [Inbox and Sent reference (Chinese)](docs/reference.md#inbox-与已发送副本查询).
+These calls do not send, move, or mark messages. Sent does not include pending Outbox messages, and a saved copy does not prove recipient delivery. Full parameters and boundaries are documented in the [Inbox and Sent reference](docs/reference.md#inbox-and-sent-queries).
 
 ## Client compatibility
 
@@ -154,7 +154,7 @@ Successful queries prove that local data is readable. They do not establish whet
 
 ### 4. Use writing tools
 
-`compose_email` only needs the local Thunderbird installation. Drafts, sending, replies, forwards, and preparation diagnostics need the enabled extension and native host. Follow the [optional writing deployment guide (Chinese)](docs/reference.md#可选写信部署macos).
+`compose_email` only needs the local Thunderbird installation. Drafts, sending, replies, forwards, and preparation diagnostics need the enabled extension and native host. Follow the [optional writing deployment guide](docs/reference.md#optional-writing-deployment-macos).
 
 Check `get_send_capabilities` for `ready=true`, the actual sender identity, and the active profile. Sending, replying, and forwarding also require `direct_send`. Attachments, drafts, HTML, replies, forwards, and diagnostics respectively require `attachments_v1`, `draft_v1`, `html_v1`, `reply_v1`, `forward_v1`, and `forward_diagnostic_v1`.
 
@@ -182,11 +182,11 @@ Saving a draft does not trigger sending. If a draft is previewed before sending,
 | `scripts/` / `tests/` | Packaging, deployment checks, sensitive-data scans, and automated tests |
 | `examples/mcp-stdio.json` | Client-independent local launch example |
 
-This README is the primary English entry point. A complete [Chinese README](README.zh-CN.md) is also available. Detailed supporting documents currently use Chinese:
+This README is the primary English entry point. A complete [Chinese README](README.zh-CN.md) is also available. The tool reference and development guide are available in both languages:
 
 - [Tools, data boundaries, and writing deployment](docs/reference.md)
 - [Development, dependency updates, CI, and sensitive-data checks](docs/development.md)
-- [Changelog](CHANGELOG.md)
+- [Changelog (Chinese)](CHANGELOG.md)
 
 Run the full test suite:
 
