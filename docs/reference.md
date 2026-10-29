@@ -1,6 +1,6 @@
 # 工具与行为参考
 
-[返回工程介绍](../README.md)
+[返回中文工程介绍](../README.zh-CN.md) | [English overview](../README.md)
 
 ## 16 个 MCP 工具（总目录）
 

@@ -18,8 +18,11 @@ class ServerTests(unittest.TestCase):
         manifest = json.loads((root / 'extension/manifest.json').read_text())
         self.assertEqual(manifest['version'], version)
         self.assertIn(
-            f'当前版本 **{version}**，总计 **{total_tool_count} 个工具**',
+            f'Current version: **{version}**, with **{total_tool_count} tools** in total.',
             (root / 'README.md').read_text())
+        self.assertIn(
+            f'当前版本 **{version}**，总计 **{total_tool_count} 个工具**',
+            (root / 'README.zh-CN.md').read_text())
         self.assertIn(
             f'## {total_tool_count} 个 MCP 工具（总目录）',
             (root / 'docs/reference.md').read_text())

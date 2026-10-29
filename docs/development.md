@@ -1,6 +1,6 @@
 # 开发与验证
 
-[返回工程介绍](../README.md)
+[返回中文工程介绍](../README.zh-CN.md) | [English overview](../README.md)
 
 ## 锁定环境
 

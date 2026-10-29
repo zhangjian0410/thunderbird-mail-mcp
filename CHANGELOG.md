@@ -68,4 +68,4 @@
 
 本地 mbox 搜索、单封读取、最近邮件列表，以及打开 Thunderbird 写信窗口。
 
-当前使用与限制见[工程介绍](README.md)和[行为参考](docs/reference.md)。
+当前使用与限制见[中文工程介绍](README.zh-CN.md)、[English overview](README.md)和[行为参考](docs/reference.md)。
